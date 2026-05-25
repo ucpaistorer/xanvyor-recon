@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getZAI } from '@/lib/zai';
+import { safeWebSearch, safeAIAnalysis } from '@/lib/zai';
 
 export async function POST(request: NextRequest) {
   try {
@@ -15,70 +15,44 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid IP address format' }, { status: 400 });
     }
 
-    const zai = await getZAI();
-
-    // Search for IP intelligence
-    const [geoSearch, threatSearch, reverseSearch] = await Promise.all([
-      zai.functions.invoke('web_search', {
-        query: `${ip} IP address geolocation ISP`,
-        num: 10,
-      }),
-      zai.functions.invoke('web_search', {
-        query: `${ip} IP threat reputation blacklist malware`,
-        num: 10,
-      }),
-      zai.functions.invoke('web_search', {
-        query: `${ip} reverse DNS hostname whois`,
-        num: 5,
-      }),
-    ]);
+    // Sequential searches to avoid rate limiting
+    const geoSearch = await safeWebSearch(`${ip} IP address geolocation ISP`, 10);
+    const threatSearch = await safeWebSearch(`${ip} IP threat reputation blacklist malware`, 10);
+    const reverseSearch = await safeWebSearch(`${ip} reverse DNS hostname whois`, 5);
 
     // AI analysis
-    let aiAnalysis = '';
-    try {
-      const allContext = [
-        ...geoSearch.slice(0, 4).map((r: { name: string; snippet: string }) => `[GEO] ${r.name}: ${r.snippet}`),
-        ...threatSearch.slice(0, 4).map((r: { name: string; snippet: string }) => `[THREAT] ${r.name}: ${r.snippet}`),
-        ...reverseSearch.slice(0, 3).map((r: { name: string; snippet: string }) => `[DNS] ${r.name}: ${r.snippet}`),
-      ].join('\n\n');
+    const allContext = [
+      ...(geoSearch as Array<Record<string, string>>).slice(0, 4).map((r: Record<string, string>) => `[GEO] ${r.name}: ${r.snippet}`),
+      ...(threatSearch as Array<Record<string, string>>).slice(0, 4).map((r: Record<string, string>) => `[THREAT] ${r.name}: ${r.snippet}`),
+      ...(reverseSearch as Array<Record<string, string>>).slice(0, 3).map((r: Record<string, string>) => `[DNS] ${r.name}: ${r.snippet}`),
+    ].join('\n\n');
 
-      const completion = await zai.chat.completions.create({
-        messages: [
-          {
-            role: 'assistant',
-            content: 'You are an OSINT analyst specializing in IP intelligence and cyber threat analysis. Analyze IP address intelligence data and provide: 1) Geolocation assessment 2) ISP/Network info 3) Threat reputation 4) Associated malicious activity 5) Risk score assessment (Low/Medium/High/Critical) 6) Recommendations. Format as structured intelligence report.'
-          },
-          {
-            role: 'user',
-            content: `Analyze IP address: ${ip}\n\nIntelligence data:\n${allContext}\n\nProvide a comprehensive IP intelligence report.`
-          }
-        ],
-        thinking: { type: 'disabled' }
-      });
-      aiAnalysis = completion.choices[0]?.message?.content || '';
-    } catch {
-      aiAnalysis = 'AI analysis unavailable';
-    }
+    const aiAnalysis = allContext.length > 0
+      ? await safeAIAnalysis(
+          'You are an OSINT analyst specializing in IP intelligence and cyber threat analysis. Analyze IP address intelligence data and provide: 1) Geolocation assessment 2) ISP/Network info 3) Threat reputation 4) Associated malicious activity 5) Risk score assessment (Low/Medium/High/Critical) 6) Recommendations. Format as structured intelligence report.',
+          `Analyze IP address: ${ip}\n\nIntelligence data:\n${allContext}\n\nProvide a comprehensive IP intelligence report.`
+        )
+      : 'No intelligence data available for this IP address.';
 
     return NextResponse.json({
       success: true,
       ip,
       type: ipv6Regex.test(ip) ? 'IPv6' : 'IPv4',
       isPrivate: isPrivateIP(ip),
-      geoResults: geoSearch.map((r: { url: string; name: string; snippet: string; host_name: string }) => ({
+      geoResults: (geoSearch as Array<Record<string, string>>).map((r: Record<string, string>) => ({
         url: r.url,
         title: r.name,
         snippet: r.snippet,
         domain: r.host_name,
       })),
-      threatResults: threatSearch.map((r: { url: string; name: string; snippet: string; host_name: string; date: string }) => ({
+      threatResults: (threatSearch as Array<Record<string, string>>).map((r: Record<string, string>) => ({
         url: r.url,
         title: r.name,
         snippet: r.snippet,
         domain: r.host_name,
-        date: r.date,
+        date: r.date || '',
       })),
-      reverseDnsResults: reverseSearch.map((r: { url: string; name: string; snippet: string }) => ({
+      reverseDnsResults: (reverseSearch as Array<Record<string, string>>).map((r: Record<string, string>) => ({
         url: r.url,
         title: r.name,
         snippet: r.snippet,

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getZAI } from '@/lib/zai';
+import { safeWebSearch, safeAIAnalysis } from '@/lib/zai';
 
 export async function POST(request: NextRequest) {
   try {
@@ -7,23 +7,6 @@ export async function POST(request: NextRequest) {
     if (!phone) {
       return NextResponse.json({ error: 'Phone number is required' }, { status: 400 });
     }
-
-    const zai = await getZAI();
-
-    const [phoneSearch, spamSearch, carrierSearch] = await Promise.all([
-      zai.functions.invoke('web_search', {
-        query: `"${phone}" phone number caller ID`,
-        num: 10,
-      }),
-      zai.functions.invoke('web_search', {
-        query: `${phone} spam scam robocall fraud report`,
-        num: 10,
-      }),
-      zai.functions.invoke('web_search', {
-        query: `${phone} carrier provider location area code`,
-        num: 5,
-      }),
-    ]);
 
     // Analyze phone number structure
     const cleaned = phone.replace(/[\s\-\(\)\+]/g, '');
@@ -35,50 +18,42 @@ export async function POST(request: NextRequest) {
       format: detectFormat(phone),
     };
 
-    // AI analysis
-    let aiAnalysis = '';
-    try {
-      const allContext = [
-        ...phoneSearch.slice(0, 4).map((r: { name: string; snippet: string }) => `[INFO] ${r.name}: ${r.snippet}`),
-        ...spamSearch.slice(0, 4).map((r: { name: string; snippet: string }) => `[SPAM] ${r.name}: ${r.snippet}`),
-        ...carrierSearch.slice(0, 3).map((r: { name: string; snippet: string }) => `[CARRIER] ${r.name}: ${r.snippet}`),
-      ].join('\n\n');
+    // Sequential searches to avoid rate limiting
+    const phoneSearch = await safeWebSearch(`"${phone}" phone number caller ID`, 10);
+    const spamSearch = await safeWebSearch(`${phone} spam scam robocall fraud report`, 10);
+    const carrierSearch = await safeWebSearch(`${phone} carrier provider location area code`, 5);
 
-      const completion = await zai.chat.completions.create({
-        messages: [
-          {
-            role: 'assistant',
-            content: 'You are an OSINT analyst specializing in phone number intelligence. Analyze phone number data and provide: 1) Number identification 2) Geographic location 3) Carrier information 4) Spam/fraud assessment 5) Associated accounts/services 6) Risk level 7) Recommendations. Format as structured intelligence report.'
-          },
-          {
-            role: 'user',
-            content: `Analyze phone number: ${phone}\n\nIntelligence data:\n${allContext}\n\nProvide a comprehensive phone number intelligence report.`
-          }
-        ],
-        thinking: { type: 'disabled' }
-      });
-      aiAnalysis = completion.choices[0]?.message?.content || '';
-    } catch {
-      aiAnalysis = 'AI analysis unavailable';
-    }
+    // AI analysis
+    const allContext = [
+      ...(phoneSearch as Array<Record<string, string>>).slice(0, 4).map((r: Record<string, string>) => `[INFO] ${r.name}: ${r.snippet}`),
+      ...(spamSearch as Array<Record<string, string>>).slice(0, 4).map((r: Record<string, string>) => `[SPAM] ${r.name}: ${r.snippet}`),
+      ...(carrierSearch as Array<Record<string, string>>).slice(0, 3).map((r: Record<string, string>) => `[CARRIER] ${r.name}: ${r.snippet}`),
+    ].join('\n\n');
+
+    const aiAnalysis = allContext.length > 0
+      ? await safeAIAnalysis(
+          'You are an OSINT analyst specializing in phone number intelligence. Analyze phone number data and provide: 1) Number identification 2) Geographic location 3) Carrier information 4) Spam/fraud assessment 5) Associated accounts/services 6) Risk level 7) Recommendations. Format as structured intelligence report.',
+          `Analyze phone number: ${phone}\n\nIntelligence data:\n${allContext}\n\nProvide a comprehensive phone number intelligence report.`
+        )
+      : 'No phone intelligence data available for this number.';
 
     return NextResponse.json({
       success: true,
       analysis: phoneAnalysis,
-      phoneResults: phoneSearch.map((r: { url: string; name: string; snippet: string; host_name: string; date: string }) => ({
+      phoneResults: (phoneSearch as Array<Record<string, string>>).map((r: Record<string, string>) => ({
         url: r.url,
         title: r.name,
         snippet: r.snippet,
         domain: r.host_name,
-        date: r.date,
+        date: r.date || '',
       })),
-      spamResults: spamSearch.map((r: { url: string; name: string; snippet: string; host_name: string }) => ({
+      spamResults: (spamSearch as Array<Record<string, string>>).map((r: Record<string, string>) => ({
         url: r.url,
         title: r.name,
         snippet: r.snippet,
         domain: r.host_name,
       })),
-      carrierResults: carrierSearch.map((r: { url: string; name: string; snippet: string }) => ({
+      carrierResults: (carrierSearch as Array<Record<string, string>>).map((r: Record<string, string>) => ({
         url: r.url,
         title: r.name,
         snippet: r.snippet,
@@ -103,10 +78,10 @@ function guessCountry(cleaned: string): string {
   if (cleaned.startsWith('55')) return 'Brazil';
   if (cleaned.startsWith('7')) return 'Russia';
   if (cleaned.startsWith('82')) return 'South Korea';
-  if (cleaned.startsWith('39')) return 'Italy';
-  if (cleaned.startsWith('34')) return 'Spain';
   if (cleaned.startsWith('62')) return 'Indonesia';
   if (cleaned.startsWith('60')) return 'Malaysia';
+  if (cleaned.startsWith('66')) return 'Thailand';
+  if (cleaned.startsWith('84')) return 'Vietnam';
   return 'Unknown';
 }
 

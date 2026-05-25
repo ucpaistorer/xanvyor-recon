@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getZAI } from '@/lib/zai';
+import { safeWebSearch, safeAIAnalysis } from '@/lib/zai';
 
 const PLATFORMS = [
   { name: 'GitHub', url: 'https://github.com/{username}', icon: '🐙', category: 'Development' },
@@ -31,24 +31,23 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Username is required' }, { status: 400 });
     }
 
-    const zai = await getZAI();
-
     // Search for the username across platforms
-    const searchResults = await zai.functions.invoke('web_search', {
-      query: `"${username}" username profile`,
-      num: 15,
-    });
+    const searchResults = await safeWebSearch(`"${username}" username profile`, 15);
 
     // Check which platforms are likely to have this username based on search results
-    const foundDomains = new Set(searchResults.map((r: { host_name: string }) => r.host_name.toLowerCase()));
+    const foundDomains = new Set(
+      (searchResults as Array<Record<string, string>>)
+        .map((r: Record<string, string>) => r.host_name?.toLowerCase())
+        .filter(Boolean)
+    );
     
     const platformResults = PLATFORMS.map(platform => {
       const platformDomain = platform.url.split('/')[2]?.replace('www.', '') || '';
       const isLikelyFound = foundDomains.has(platformDomain) || 
-        searchResults.some((r: { snippet: string; name: string }) => 
-          r.snippet.toLowerCase().includes(username.toLowerCase()) && 
-          (r.snippet.toLowerCase().includes(platform.name.toLowerCase()) ||
-           r.name.toLowerCase().includes(platform.name.toLowerCase()))
+        (searchResults as Array<Record<string, string>>).some((r: Record<string, string>) => 
+          r.snippet?.toLowerCase().includes(username.toLowerCase()) && 
+          (r.snippet?.toLowerCase().includes(platform.name.toLowerCase()) ||
+           r.name?.toLowerCase().includes(platform.name.toLowerCase()))
         );
       
       return {
@@ -60,30 +59,17 @@ export async function POST(request: NextRequest) {
     });
 
     // AI analysis of username
-    let aiAnalysis = '';
-    try {
-      const searchContext = searchResults
-        .slice(0, 8)
-        .map((r: { name: string; snippet: string; url: string }, i: number) => `${i + 1}. ${r.name}\n   ${r.snippet}\n   ${r.url}`)
-        .join('\n\n');
+    const searchContext = (searchResults as Array<Record<string, string>>)
+      .slice(0, 8)
+      .map((r: Record<string, string>, i: number) => `${i + 1}. ${r.name}\n   ${r.snippet}\n   ${r.url}`)
+      .join('\n\n');
 
-      const completion = await zai.chat.completions.create({
-        messages: [
-          {
-            role: 'assistant',
-            content: 'You are an OSINT analyst specializing in digital identity analysis. Analyze search results about a username and provide insights about: potential accounts found, digital footprint, linked identities, and recommendations for further investigation.'
-          },
-          {
-            role: 'user',
-            content: `Analyze search results for username "${username}":\n\n${searchContext}\n\nProvide a structured OSINT analysis of this username's digital footprint.`
-          }
-        ],
-        thinking: { type: 'disabled' }
-      });
-      aiAnalysis = completion.choices[0]?.message?.content || '';
-    } catch {
-      aiAnalysis = 'AI analysis unavailable';
-    }
+    const aiAnalysis = searchResults.length > 0
+      ? await safeAIAnalysis(
+          'You are an OSINT analyst specializing in digital identity analysis. Analyze search results about a username and provide insights about: potential accounts found, digital footprint, linked identities, and recommendations for further investigation.',
+          `Analyze search results for username "${username}":\n\n${searchContext}\n\nProvide a structured OSINT analysis of this username's digital footprint.`
+        )
+      : 'No search results found for this username.';
 
     return NextResponse.json({
       success: true,
@@ -91,7 +77,7 @@ export async function POST(request: NextRequest) {
       platforms: platformResults,
       likelyFound: platformResults.filter(p => p.status === 'likely_found').length,
       totalChecked: platformResults.length,
-      searchResults: searchResults.map((r: { url: string; name: string; snippet: string; host_name: string }) => ({
+      searchResults: (searchResults as Array<Record<string, string>>).map((r: Record<string, string>) => ({
         url: r.url,
         title: r.name,
         snippet: r.snippet,

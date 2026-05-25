@@ -80,6 +80,32 @@ function AIAnalysisCard({ analysis, isLoading }: { analysis: string; isLoading: 
   );
 }
 
+function ErrorCard({ error }: { error: string }) {
+  return (
+    <Card className="border-red-500/30 bg-red-500/5">
+      <CardContent className="p-4">
+        <div className="flex items-center gap-2 text-red-400">
+          <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+          <span className="text-sm">{error}</span>
+        </div>
+        <p className="text-xs text-muted-foreground mt-2">Please try again in a moment. Rate limits may apply for frequent requests.</p>
+      </CardContent>
+    </Card>
+  );
+}
+
+function LoadingIndicator({ message }: { message: string }) {
+  return (
+    <div className="flex items-center justify-center py-12">
+      <div className="text-center">
+        <Loader2 className="w-8 h-8 animate-spin text-emerald-400 mx-auto mb-3" />
+        <p className="text-sm text-muted-foreground">{message}</p>
+        <p className="text-xs text-muted-foreground mt-1">This may take a moment due to AI analysis...</p>
+      </div>
+    </div>
+  );
+}
+
 function ResultCard({ title, snippet, url, date, domain }: { title: string; snippet: string; url: string; date?: string; domain?: string }) {
   return (
     <motion.div
@@ -234,11 +260,13 @@ function UsernameModule() {
   const [username, setUsername] = useState('');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<Record<string, unknown> | null>(null);
+  const [error, setError] = useState('');
 
   const search = useCallback(async () => {
     if (!username.trim()) return;
     setLoading(true);
     setResult(null);
+    setError('');
     try {
       const res = await fetch('/api/osint/username', {
         method: 'POST',
@@ -246,9 +274,13 @@ function UsernameModule() {
         body: JSON.stringify({ username: username.trim() }),
       });
       const data = await res.json();
-      setResult(data);
+      if (data.error) {
+        setError(data.error);
+      } else {
+        setResult(data);
+      }
     } catch {
-      // error
+      setError('Network error. Please check your connection and try again.');
     } finally {
       setLoading(false);
     }
@@ -287,6 +319,8 @@ function UsernameModule() {
         </Button>
       </div>
 
+      {loading && <LoadingIndicator message={`Scanning "${username}" across 20+ platforms...`} />}
+      {error && <ErrorCard error={error} />}
       {result && (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
           {/* Stats */}
@@ -359,11 +393,13 @@ function EmailModule() {
   const [email, setEmail] = useState('');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<Record<string, unknown> | null>(null);
+  const [error, setError] = useState('');
 
   const search = useCallback(async () => {
     if (!email.trim()) return;
     setLoading(true);
     setResult(null);
+    setError('');
     try {
       const res = await fetch('/api/osint/email', {
         method: 'POST',
@@ -371,9 +407,13 @@ function EmailModule() {
         body: JSON.stringify({ email: email.trim() }),
       });
       const data = await res.json();
-      setResult(data);
+      if (data.error) {
+        setError(data.error);
+      } else {
+        setResult(data);
+      }
     } catch {
-      // error
+      setError('Network error. Please check your connection and try again.');
     } finally {
       setLoading(false);
     }
@@ -413,6 +453,8 @@ function EmailModule() {
         </Button>
       </div>
 
+      {loading && <LoadingIndicator message="Analyzing email exposure and breach data..." />}
+      {error && <ErrorCard error={error} />}
       {result && (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
           {/* Email Analysis Card */}
@@ -483,11 +525,13 @@ function IPModule() {
   const [ip, setIp] = useState('');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<Record<string, unknown> | null>(null);
+  const [error, setError] = useState('');
 
   const search = useCallback(async () => {
     if (!ip.trim()) return;
     setLoading(true);
     setResult(null);
+    setError('');
     try {
       const res = await fetch('/api/osint/ip', {
         method: 'POST',
@@ -495,9 +539,13 @@ function IPModule() {
         body: JSON.stringify({ ip: ip.trim() }),
       });
       const data = await res.json();
-      setResult(data);
+      if (data.error) {
+        setError(data.error);
+      } else {
+        setResult(data);
+      }
     } catch {
-      // error
+      setError('Network error. Please check your connection and try again.');
     } finally {
       setLoading(false);
     }
@@ -532,6 +580,8 @@ function IPModule() {
         </Button>
       </div>
 
+      {loading && <LoadingIndicator message="Running IP reconnaissance and threat assessment..." />}
+      {error && <ErrorCard error={error} />}
       {result && (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -606,11 +656,13 @@ function DomainModule() {
   const [domain, setDomain] = useState('');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<Record<string, unknown> | null>(null);
+  const [error, setError] = useState('');
 
   const search = useCallback(async () => {
     if (!domain.trim()) return;
     setLoading(true);
     setResult(null);
+    setError('');
     try {
       const res = await fetch('/api/osint/domain', {
         method: 'POST',
@@ -618,9 +670,13 @@ function DomainModule() {
         body: JSON.stringify({ domain: domain.trim() }),
       });
       const data = await res.json();
-      setResult(data);
+      if (data.error) {
+        setError(data.error);
+      } else {
+        setResult(data);
+      }
     } catch {
-      // error
+      setError('Network error. Please check your connection and try again.');
     } finally {
       setLoading(false);
     }
@@ -655,6 +711,8 @@ function DomainModule() {
         </Button>
       </div>
 
+      {loading && <LoadingIndicator message="Scanning domain infrastructure and WHOIS records..." />}
+      {error && <ErrorCard error={error} />}
       {result && (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
           <Tabs defaultValue="whois">
@@ -706,11 +764,13 @@ function PhoneModule() {
   const [phone, setPhone] = useState('');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<Record<string, unknown> | null>(null);
+  const [error, setError] = useState('');
 
   const search = useCallback(async () => {
     if (!phone.trim()) return;
     setLoading(true);
     setResult(null);
+    setError('');
     try {
       const res = await fetch('/api/osint/phone', {
         method: 'POST',
@@ -718,9 +778,13 @@ function PhoneModule() {
         body: JSON.stringify({ phone: phone.trim() }),
       });
       const data = await res.json();
-      setResult(data);
+      if (data.error) {
+        setError(data.error);
+      } else {
+        setResult(data);
+      }
     } catch {
-      // error
+      setError('Network error. Please check your connection and try again.');
     } finally {
       setLoading(false);
     }
@@ -757,6 +821,8 @@ function PhoneModule() {
         </Button>
       </div>
 
+      {loading && <LoadingIndicator message="Tracing phone number and analyzing carrier data..." />}
+      {error && <ErrorCard error={error} />}
       {result && (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
           {analysis && (
@@ -825,11 +891,13 @@ function WebSearchModule() {
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<Record<string, unknown> | null>(null);
+  const [error, setError] = useState('');
 
   const search = useCallback(async () => {
     if (!query.trim()) return;
     setLoading(true);
     setResult(null);
+    setError('');
     try {
       const res = await fetch('/api/osint/web-search', {
         method: 'POST',
@@ -837,9 +905,13 @@ function WebSearchModule() {
         body: JSON.stringify({ query: query.trim() }),
       });
       const data = await res.json();
-      setResult(data);
+      if (data.error) {
+        setError(data.error);
+      } else {
+        setResult(data);
+      }
     } catch {
-      // error
+      setError('Network error. Please check your connection and try again.');
     } finally {
       setLoading(false);
     }
@@ -876,6 +948,8 @@ function WebSearchModule() {
         </Button>
       </div>
 
+      {loading && <LoadingIndicator message="Searching the web for OSINT intelligence..." />}
+      {error && <ErrorCard error={error} />}
       {result && (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
           <div className="flex items-center gap-4 text-sm text-muted-foreground">
@@ -902,11 +976,13 @@ function ImageModule() {
   const [prompt, setPrompt] = useState('');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<Record<string, unknown> | null>(null);
+  const [error, setError] = useState('');
 
   const analyze = useCallback(async () => {
     if (!imageUrl.trim()) return;
     setLoading(true);
     setResult(null);
+    setError('');
     try {
       const res = await fetch('/api/osint/image-analysis', {
         method: 'POST',
@@ -914,9 +990,13 @@ function ImageModule() {
         body: JSON.stringify({ imageUrl: imageUrl.trim(), prompt: prompt.trim() || undefined }),
       });
       const data = await res.json();
-      setResult(data);
+      if (data.error) {
+        setError(data.error);
+      } else {
+        setResult(data);
+      }
     } catch {
-      // error
+      setError('Network error. Please check your connection and try again.');
     } finally {
       setLoading(false);
     }
@@ -956,6 +1036,8 @@ function ImageModule() {
         </Button>
       </div>
 
+      {loading && <LoadingIndicator message="Running VLM visual intelligence analysis..." />}
+      {error && <ErrorCard error={error} />}
       {result && (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
           {imageUrl && (
@@ -984,11 +1066,13 @@ function DNSModule() {
   const [domain, setDomain] = useState('');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<Record<string, unknown> | null>(null);
+  const [error, setError] = useState('');
 
   const search = useCallback(async () => {
     if (!domain.trim()) return;
     setLoading(true);
     setResult(null);
+    setError('');
     try {
       const res = await fetch('/api/osint/dns', {
         method: 'POST',
@@ -996,9 +1080,13 @@ function DNSModule() {
         body: JSON.stringify({ domain: domain.trim() }),
       });
       const data = await res.json();
-      setResult(data);
+      if (data.error) {
+        setError(data.error);
+      } else {
+        setResult(data);
+      }
     } catch {
-      // error
+      setError('Network error. Please check your connection and try again.');
     } finally {
       setLoading(false);
     }
@@ -1033,6 +1121,8 @@ function DNSModule() {
         </Button>
       </div>
 
+      {loading && <LoadingIndicator message="Enumerating DNS records and security configurations..." />}
+      {error && <ErrorCard error={error} />}
       {result && (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
           <Tabs defaultValue="dns">
@@ -1084,6 +1174,7 @@ function AIChatModule() {
   const [messages, setMessages] = useState<Array<{ role: 'user' | 'assistant'; content: string }>>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -1098,6 +1189,7 @@ function AIChatModule() {
     setInput('');
     setMessages(prev => [...prev, { role: 'user', content: userMsg }]);
     setLoading(true);
+    setError('');
 
     try {
       const history = messages.slice(-10);
@@ -1107,11 +1199,13 @@ function AIChatModule() {
         body: JSON.stringify({ message: userMsg, history }),
       });
       const data = await res.json();
-      if (data.response) {
+      if (data.error) {
+        setError(data.error);
+      } else if (data.response) {
         setMessages(prev => [...prev, { role: 'assistant', content: data.response }]);
       }
     } catch {
-      setMessages(prev => [...prev, { role: 'assistant', content: 'Error: Failed to get response from AI.' }]);
+      setError('Network error. Please check your connection and try again.');
     } finally {
       setLoading(false);
     }
@@ -1138,6 +1232,8 @@ function AIChatModule() {
         </div>
       </div>
 
+      {loading && <LoadingIndicator message="RECON-AI is processing your query..." />}
+      {error && <ErrorCard error={error} />}
       <div ref={scrollRef} className="flex-1 space-y-4 overflow-y-auto max-h-[calc(100vh-320px)] min-h-[300px]">
         {messages.length === 0 && (
           <div className="text-center py-8">

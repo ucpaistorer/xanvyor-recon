@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getZAI } from '@/lib/zai';
+import { getZAI, safeWebSearch } from '@/lib/zai';
 
 export async function POST(request: NextRequest) {
   try {
@@ -11,17 +11,14 @@ export async function POST(request: NextRequest) {
     const zai = await getZAI();
 
     // Check if the user needs web search for current information
-    const needsSearch = /latest|current|recent|today|now|news|update|price|weather|live/i.test(message);
+    const needsSearch = /latest|current|recent|today|now|news|update|price|weather|live|who is|what is|how to|find|search|lookup/i.test(message);
 
     let searchContext = '';
     if (needsSearch) {
       try {
-        const searchResults = await zai.functions.invoke('web_search', {
-          query: message,
-          num: 5,
-        });
-        searchContext = searchResults
-          .map((r: { name: string; snippet: string; url: string }) => `• ${r.name}: ${r.snippet} (${r.url})`)
+        const searchResults = await safeWebSearch(message, 5);
+        searchContext = (searchResults as Array<Record<string, string>>)
+          .map((r: Record<string, string>) => `• ${r.name}: ${r.snippet} (${r.url})`)
           .join('\n');
       } catch {
         searchContext = '';
@@ -58,18 +55,30 @@ When analyzing, consider: data sources, reliability, timeliness, and corroborati
       },
     ];
 
-    const completion = await zai.chat.completions.create({
-      messages,
-      thinking: { type: 'disabled' },
-    });
+    try {
+      const completion = await zai.chat.completions.create({
+        messages,
+        thinking: { type: 'disabled' },
+      });
 
-    const response = completion.choices[0]?.message?.content || '';
+      const response = completion.choices[0]?.message?.content || 'No response generated.';
 
-    return NextResponse.json({
-      success: true,
-      response,
-      sourcesIncluded: needsSearch && searchContext.length > 0,
-    });
+      return NextResponse.json({
+        success: true,
+        response,
+        sourcesIncluded: needsSearch && searchContext.length > 0,
+      });
+    } catch (error: unknown) {
+      const errMsg = error instanceof Error ? error.message : String(error);
+      if (errMsg.includes('429') || errMsg.toLowerCase().includes('too many requests')) {
+        return NextResponse.json({
+          success: true,
+          response: 'I\'m currently experiencing high traffic. Please try again in a moment and I\'ll provide you with a comprehensive OSINT analysis.',
+          sourcesIncluded: false,
+        });
+      }
+      throw error;
+    }
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Unknown error';
     return NextResponse.json({ error: message }, { status: 500 });

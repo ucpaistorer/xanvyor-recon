@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getZAI } from '@/lib/zai';
+import { safeWebSearch, safeAIAnalysis } from '@/lib/zai';
 
 export async function POST(request: NextRequest) {
   try {
@@ -13,24 +13,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid email format' }, { status: 400 });
     }
 
-    const zai = await getZAI();
     const [username, domain] = email.split('@');
 
-    // Search for email across the web
-    const [emailSearch, domainSearch, breachSearch] = await Promise.all([
-      zai.functions.invoke('web_search', {
-        query: `"${email}" OR "${username}" ${domain}`,
-        num: 10,
-      }),
-      zai.functions.invoke('web_search', {
-        query: `${domain} domain whois information`,
-        num: 5,
-      }),
-      zai.functions.invoke('web_search', {
-        query: `"${email}" data breach leak paste`,
-        num: 10,
-      }),
-    ]);
+    // Sequential searches to avoid rate limiting
+    const emailSearch = await safeWebSearch(`"${email}" OR "${username}" ${domain}`, 10);
+    const domainSearch = await safeWebSearch(`${domain} domain whois information`, 5);
+    const breachSearch = await safeWebSearch(`"${email}" data breach leak paste`, 10);
 
     // Analyze email structure
     const emailAnalysis = {
@@ -42,54 +30,41 @@ export async function POST(request: NextRequest) {
     };
 
     // AI deep analysis
-    let aiAnalysis = '';
-    try {
-      const emailContext = emailSearch.slice(0, 5).map((r: { name: string; snippet: string; url: string }) => 
-        `• ${r.name}\n  ${r.snippet}\n  ${r.url}`
-      ).join('\n\n');
+    const emailContext = (emailSearch as Array<Record<string, string>>).slice(0, 5).map((r: Record<string, string>) => 
+      `• ${r.name}\n  ${r.snippet}\n  ${r.url}`
+    ).join('\n\n');
 
-      const breachContext = breachSearch.slice(0, 5).map((r: { name: string; snippet: string }) => 
-        `• ${r.name}: ${r.snippet}`
-      ).join('\n\n');
+    const breachContext = (breachSearch as Array<Record<string, string>>).slice(0, 5).map((r: Record<string, string>) => 
+      `• ${r.name}: ${r.snippet}`
+    ).join('\n\n');
 
-      const completion = await zai.chat.completions.create({
-        messages: [
-          {
-            role: 'assistant',
-            content: 'You are an OSINT analyst specializing in email intelligence. Analyze email search results and provide: 1) Digital footprint summary 2) Associated accounts/platforms 3) Potential security risks 4) Breach exposure assessment 5) Recommendations for further investigation. Be thorough but concise.'
-          },
-          {
-            role: 'user',
-            content: `Analyze email: ${email}\n\nEmail exposure results:\n${emailContext}\n\nBreach/data leak results:\n${breachContext}\n\nProvide a comprehensive email intelligence report.`
-          }
-        ],
-        thinking: { type: 'disabled' }
-      });
-      aiAnalysis = completion.choices[0]?.message?.content || '';
-    } catch {
-      aiAnalysis = 'AI analysis unavailable';
-    }
+    const aiAnalysis = (emailSearch.length > 0 || breachSearch.length > 0)
+      ? await safeAIAnalysis(
+          'You are an OSINT analyst specializing in email intelligence. Analyze email search results and provide: 1) Digital footprint summary 2) Associated accounts/platforms 3) Potential security risks 4) Breach exposure assessment 5) Recommendations for further investigation. Be thorough but concise.',
+          `Analyze email: ${email}\n\nEmail exposure results:\n${emailContext}\n\nBreach/data leak results:\n${breachContext}\n\nProvide a comprehensive email intelligence report.`
+        )
+      : 'No data available for analysis. Try a different email address.';
 
     return NextResponse.json({
       success: true,
       analysis: emailAnalysis,
-      emailExposure: emailSearch.map((r: { url: string; name: string; snippet: string; host_name: string; date: string }) => ({
+      emailExposure: (emailSearch as Array<Record<string, string>>).map((r: Record<string, string>) => ({
         url: r.url,
         title: r.name,
         snippet: r.snippet,
         domain: r.host_name,
-        date: r.date,
+        date: r.date || '',
       })),
-      domainInfo: domainSearch.map((r: { url: string; name: string; snippet: string }) => ({
+      domainInfo: (domainSearch as Array<Record<string, string>>).map((r: Record<string, string>) => ({
         url: r.url,
         title: r.name,
         snippet: r.snippet,
       })),
-      breachInfo: breachSearch.map((r: { url: string; name: string; snippet: string; date: string }) => ({
+      breachInfo: (breachSearch as Array<Record<string, string>>).map((r: Record<string, string>) => ({
         url: r.url,
         title: r.name,
         snippet: r.snippet,
-        date: r.date,
+        date: r.date || '',
       })),
       aiAnalysis,
     });
