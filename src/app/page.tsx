@@ -27,7 +27,7 @@ import ReactMarkdown from 'react-markdown';
 // ============================================================
 // Types
 // ============================================================
-type ModuleType = 'dashboard' | 'username' | 'email' | 'ip' | 'domain' | 'phone' | 'websearch' | 'image' | 'aichat' | 'dns' | 'nik' | 'ktptrack' | 'websec' | 'webvuln' | 'mac' | 'bitcoin' | 'vehicle';
+type ModuleType = 'dashboard' | 'username' | 'email' | 'ip' | 'domain' | 'phone' | 'websearch' | 'image' | 'aichat' | 'dns' | 'nik' | 'ktptrack' | 'websec' | 'webvuln' | 'mac' | 'bitcoin' | 'vehicle' | 'phonelocation' | 'phonedevice' | 'school' | 'wifi' | 'social';
 
 interface Module {
   id: ModuleType;
@@ -54,6 +54,11 @@ const MODULES: Module[] = [
   { id: 'mac', name: 'MAC Lookup', icon: <Wifi className="w-4 h-4" />, description: 'MAC address intelligence', color: 'from-yellow-500 to-amber-500' },
   { id: 'bitcoin', name: 'Bitcoin Intel', icon: <Zap className="w-4 h-4" />, description: 'Crypto address analysis', color: 'from-orange-500 to-yellow-500' },
   { id: 'vehicle', name: 'Vehicle Check', icon: <Target className="w-4 h-4" />, description: 'Indonesian plate lookup', color: 'from-lime-500 to-green-500' },
+  { id: 'phonelocation', name: 'Phone Location', icon: <MapPin className="w-4 h-4" />, description: 'Track phone location', color: 'from-rose-500 to-pink-500' },
+  { id: 'phonedevice', name: 'Phone Device', icon: <Cpu className="w-4 h-4" />, description: 'Device & app intelligence', color: 'from-sky-500 to-cyan-500' },
+  { id: 'school', name: 'School Intel', icon: <Users className="w-4 h-4" />, description: 'School & student OSINT', color: 'from-purple-500 to-violet-500' },
+  { id: 'wifi', name: 'WiFi Tracker', icon: <Wifi className="w-4 h-4" />, description: 'WiFi AP & BSSID intel', color: 'from-amber-500 to-yellow-500' },
+  { id: 'social', name: 'Social Deep Scan', icon: <Users className="w-4 h-4" />, description: 'Deep social media scan', color: 'from-pink-500 to-fuchsia-500' },
   { id: 'aichat', name: 'RECON-AI', icon: <Brain className="w-4 h-4" />, description: 'OSINT AI assistant', color: 'from-fuchsia-500 to-pink-500' },
 ];
 
@@ -199,7 +204,7 @@ function ResultCard({ title, snippet, url, date, domain }: { title: string; snip
 // ============================================================
 function DashboardModule() {
   const stats = [
-    { label: 'Tools Available', value: '17+', icon: <Layers className="w-5 h-5" />, color: 'text-emerald-400' },
+    { label: 'Tools Available', value: '22+', icon: <Layers className="w-5 h-5" />, color: 'text-emerald-400' },
     { label: 'AI Engines', value: '4', icon: <Cpu className="w-5 h-5" />, color: 'text-cyan-400' },
     { label: 'Data Sources', value: '100+', icon: <Database className="w-5 h-5" />, color: 'text-amber-400' },
     { label: 'Real-time', value: 'Yes', icon: <Activity className="w-5 h-5" />, color: 'text-rose-400' },
@@ -223,6 +228,11 @@ function DashboardModule() {
     { icon: <Zap className="w-5 h-5" />, title: 'Bitcoin Intelligence', desc: 'Cryptocurrency address analysis, transaction tracking, and risk assessment' },
     { icon: <Target className="w-5 h-5" />, title: 'Vehicle Plate Check', desc: 'Indonesian vehicle registration lookup, region decoding, and crime check' },
     { icon: <Radar className="w-5 h-5" />, title: 'Threat Intelligence', desc: 'Real-time threat assessment powered by AI across all modules' },
+    { icon: <MapPin className="w-5 h-5" />, title: 'Phone Location Tracker', desc: 'Track phone number geographic location, carrier region, and cell tower intelligence' },
+    { icon: <Cpu className="w-5 h-5" />, title: 'Phone Device Intelligence', desc: 'Detect device type, OS, connected apps, account security, and data leaks' },
+    { icon: <Users className="w-5 h-5" />, title: 'School & Student OSINT', desc: 'Search school data, NPSN, student records, Dapodik, and educational intelligence' },
+    { icon: <Wifi className="w-5 h-5" />, title: 'WiFi Access Point Tracker', desc: 'Track WiFi BSSID/SSID location, OUI manufacturer, router vulnerabilities, and network security' },
+    { icon: <Users className="w-5 h-5" />, title: 'Social Media Deep Scan', desc: 'Deep scan across 31+ social platforms with digital footprint scoring and risk assessment' },
   ];
 
   return (
@@ -2495,6 +2505,752 @@ function AIChatModule() {
 // ============================================================
 // Sidebar Content
 // ============================================================
+// ============================================================
+// Phone Location Tracker Module
+// ============================================================
+interface PhoneLocationResult {
+  success: boolean;
+  phone: string;
+  cleaned: string;
+  countryCode: string;
+  country: string;
+  location: {
+    region: string;
+    city: string;
+    province: string;
+    fullAddress: string | null;
+    latitude: number | null;
+    longitude: number | null;
+    mapUrl: string;
+    openStreetMapUrl: string;
+    accuracy: string;
+  };
+  areaInfo: Array<{ title: string; snippet: string; url: string; source: string }>;
+  carrierInfo: { carrier: string; type: string; network: string; region: string };
+  locationResults: Array<{ url: string; title: string; snippet: string; domain: string }>;
+  dataLeaks: Array<{ type: string; severity: string; source: string; description: string; url: string }>;
+  leakCount: number;
+  aiAnalysis: string;
+}
+
+function PhoneLocationModule() {
+  const [phone, setPhone] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState<PhoneLocationResult | null>(null);
+  const [error, setError] = useState('');
+
+  const search = useCallback(async () => {
+    if (!phone.trim()) return;
+    setLoading(true); setResult(null); setError('');
+    try {
+      const res = await fetch('/api/osint/phone-location', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone: phone.trim() }) });
+      const data = await res.json();
+      if (data.error) { setError(data.error); } else { setResult(data as PhoneLocationResult); }
+    } catch { setError('Network error. Please check your connection and try again.'); }
+    finally { setLoading(false); }
+  }, [phone]);
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center gap-3 mb-2">
+        <div className="p-2 rounded-lg bg-rose-500/20 border border-rose-500/30"><MapPin className="w-5 h-5 text-rose-400" /></div>
+        <div><h2 className="text-xl font-bold">Phone Location Tracker</h2><p className="text-sm text-muted-foreground">Track phone number geographic location & carrier intelligence</p></div>
+      </div>
+
+      <div className="flex gap-3">
+        <div className="relative flex-1">
+          <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <Input placeholder="Enter phone number (e.g., 6281234567890)..." value={phone} onChange={(e) => setPhone(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && search()} className="pl-10 bg-card/50 border-border/50" />
+        </div>
+        <Button onClick={search} disabled={loading} className="bg-rose-600 hover:bg-rose-700 text-white min-w-[100px]">
+          {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <MapPin className="w-4 h-4 mr-2" />}{loading ? 'Tracking' : 'Track'}
+        </Button>
+      </div>
+
+      {loading && <LoadingIndicator message="Tracking phone number location and carrier data..." />}
+      {error && <ErrorCard error={error} />}
+      {result && (
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
+          {/* Location Card */}
+          <Card className="border-rose-500/30 bg-rose-500/5">
+            <CardContent className="p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <MapPin className="w-4 h-4 text-rose-400" />
+                <span className="text-sm font-semibold text-rose-400">Location Intelligence</span>
+                {result.location && <Badge className={`text-xs ${result.location.accuracy === 'high' ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' : result.location.accuracy === 'medium' ? 'bg-amber-500/20 text-amber-400 border-amber-500/30' : 'bg-gray-500/20 text-gray-400 border-gray-500/30'}`}>Accuracy: {result.location.accuracy}</Badge>}
+              </div>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <div><div className="text-xs text-muted-foreground">Region</div><div className="text-sm font-medium">{result.location?.region || 'Unknown'}</div></div>
+                <div><div className="text-xs text-muted-foreground">City</div><div className="text-sm font-medium">{result.location?.city || 'Unknown'}</div></div>
+                <div><div className="text-xs text-muted-foreground">Province</div><div className="text-sm font-medium">{result.location?.province || 'Unknown'}</div></div>
+                <div><div className="text-xs text-muted-foreground">Country</div><div className="text-sm font-medium">{result.country}</div></div>
+              </div>
+              {result.location?.fullAddress && (
+                <div className="mt-3 p-2 rounded-lg bg-card/50 border border-border/30">
+                  <div className="text-xs text-muted-foreground">Full Address</div>
+                  <div className="text-sm font-medium">{result.location.fullAddress}</div>
+                </div>
+              )}
+              {result.location?.latitude !== null && result.location?.longitude !== null && (
+                <div className="flex items-center gap-4 mt-3">
+                  <div className="text-xs text-muted-foreground">Lat: <span className="font-mono text-rose-400">{result.location.latitude}</span></div>
+                  <div className="text-xs text-muted-foreground">Lng: <span className="font-mono text-rose-400">{result.location.longitude}</span></div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Carrier Info */}
+          {result.carrierInfo && (
+            <Card className="border-pink-500/30 bg-pink-500/5">
+              <CardContent className="p-4">
+                <div className="flex items-center gap-2 mb-3">
+                  <Phone className="w-4 h-4 text-pink-400" />
+                  <span className="text-sm font-semibold text-pink-400">Carrier & Network</span>
+                </div>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  <div><div className="text-xs text-muted-foreground">Carrier</div><div className="text-sm font-medium text-pink-400">{result.carrierInfo.carrier}</div></div>
+                  <div><div className="text-xs text-muted-foreground">Type</div><div className="text-sm font-medium">{result.carrierInfo.type}</div></div>
+                  <div><div className="text-xs text-muted-foreground">Network</div><div className="text-sm font-medium">{result.carrierInfo.network}</div></div>
+                  <div><div className="text-xs text-muted-foreground">Region</div><div className="text-sm font-medium">{result.carrierInfo.region}</div></div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Map */}
+          {result.location?.latitude !== null && result.location?.longitude !== null && (
+            <Card className="border-rose-500/30 bg-rose-500/5">
+              <CardContent className="p-4">
+                <div className="flex items-center gap-2 mb-3">
+                  <Globe2 className="w-4 h-4 text-rose-400" />
+                  <span className="text-sm font-semibold text-rose-400">Interactive Map</span>
+                </div>
+                <div className="rounded-lg overflow-hidden border border-border/30">
+                  <iframe
+                    src={`https://www.openstreetmap.org/export/embed.html?bbox=${result.location.longitude - 0.01},${result.location.latitude - 0.01},${result.location.longitude + 0.01},${result.location.latitude + 0.01}&layer=mapnik&marker=${result.location.latitude},${result.location.longitude}`}
+                    style={{ border: 0, width: '100%', height: '300px' }}
+                    loading="lazy"
+                    title="Phone Location Map"
+                  />
+                </div>
+                <div className="flex flex-wrap gap-2 mt-3">
+                  <a href={result.location.mapUrl} target="_blank" rel="noopener noreferrer">
+                    <Button variant="outline" size="sm" className="border-rose-500/30 text-rose-400 hover:bg-rose-500/10"><MapPin className="w-3 h-3 mr-1" />Google Maps</Button>
+                  </a>
+                  <a href={result.location.openStreetMapUrl} target="_blank" rel="noopener noreferrer">
+                    <Button variant="outline" size="sm" className="border-pink-500/30 text-pink-400 hover:bg-pink-500/10"><Globe className="w-3 h-3 mr-1" />OpenStreetMap</Button>
+                  </a>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Data Leaks */}
+          {result.leakCount > 0 && (
+            <Card className="border-red-600/50 bg-red-600/10">
+              <CardContent className="p-4">
+                <div className="flex items-center gap-2 mb-3"><ShieldAlert className="w-5 h-5 text-red-400" /><span className="text-sm font-bold text-red-400">DATA LEAKS: {result.leakCount}</span></div>
+                <div className="space-y-2">{result.dataLeaks.map((leak, i) => (
+                  <div key={i} className="p-2 rounded-lg border border-red-500/30 bg-red-500/5">
+                    <div className="flex items-center gap-2"><SeverityBadge severity={leak.severity} /><span className="text-sm font-medium">{leak.type}</span></div>
+                    <p className="text-xs text-muted-foreground mt-1">{leak.description}</p>
+                  </div>
+                ))}</div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Area Info */}
+          <Tabs defaultValue="location">
+            <TabsList className="bg-card/50 flex-wrap">
+              <TabsTrigger value="location" className="data-[state=active]:bg-rose-500/20 data-[state=active]:text-rose-400"><MapPin className="w-3 h-3 mr-1" /> Location ({result.locationResults?.length || 0})</TabsTrigger>
+              <TabsTrigger value="area" className="data-[state=active]:bg-pink-500/20 data-[state=active]:text-pink-400"><Radar className="w-3 h-3 mr-1" /> Area Info ({result.areaInfo?.length || 0})</TabsTrigger>
+              <TabsTrigger value="ai" className="data-[state=active]:bg-emerald-500/20 data-[state=active]:text-emerald-400"><Brain className="w-3 h-3 mr-1" /> AI</TabsTrigger>
+            </TabsList>
+            <TabsContent value="location" className="mt-3"><div className="space-y-2 max-h-96 overflow-y-auto">{result.locationResults?.map((r, i) => <ResultCard key={i} {...r} />)}</div></TabsContent>
+            <TabsContent value="area" className="mt-3"><div className="space-y-2 max-h-96 overflow-y-auto">{result.areaInfo?.map((r, i) => <ResultCard key={i} title={r.title} snippet={r.snippet} url={r.url} domain={r.source} />)}</div></TabsContent>
+            <TabsContent value="ai" className="mt-3"><AIAnalysisCard analysis={result.aiAnalysis || ''} isLoading={false} /></TabsContent>
+          </Tabs>
+          <AIAnalysisCard analysis={result.aiAnalysis || ''} isLoading={false} />
+        </motion.div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
+// Phone Device Tracker Module
+// ============================================================
+interface PhoneDeviceResult {
+  success: boolean;
+  phone: string;
+  analysis: { original: string; cleaned: string; countryCode: string; country: string; carrier: string; numberType: string };
+  deviceInfo: { likelyDeviceType: string; likelyOS: string; confidence: string; detectedModels: string[] };
+  registeredApps: Array<{ name: string; icon: string; category: string; detected: boolean; confidence: string }>;
+  detectedAppCount: number;
+  connectedDevices: Array<{ platform: string; device: string; os: string; lastActive: string; confidence: string }>;
+  accountSecurity: { twoFactorEnabled: boolean | null; lastPasswordChange: string; compromisedAccounts: string[]; securityScore: number };
+  dataLeaks: Array<{ type: string; severity: string; source: string; description: string; url: string }>;
+  leakCount: number;
+  deviceResults: Array<{ url: string; title: string; snippet: string; domain: string }>;
+  appResults: Array<{ url: string; title: string; snippet: string; domain: string }>;
+  securityResults: Array<{ url: string; title: string; snippet: string; domain: string }>;
+  aiAnalysis: string;
+}
+
+function PhoneDeviceModule() {
+  const [phone, setPhone] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState<PhoneDeviceResult | null>(null);
+  const [error, setError] = useState('');
+
+  const search = useCallback(async () => {
+    if (!phone.trim()) return;
+    setLoading(true); setResult(null); setError('');
+    try {
+      const res = await fetch('/api/osint/phone-device', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone: phone.trim() }) });
+      const data = await res.json();
+      if (data.error) { setError(data.error); } else { setResult(data as PhoneDeviceResult); }
+    } catch { setError('Network error. Please check your connection and try again.'); }
+    finally { setLoading(false); }
+  }, [phone]);
+
+  const getScoreColor = (score: number) => score >= 80 ? 'text-emerald-400' : score >= 50 ? 'text-amber-400' : 'text-red-400';
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center gap-3 mb-2">
+        <div className="p-2 rounded-lg bg-sky-500/20 border border-sky-500/30"><Cpu className="w-5 h-5 text-sky-400" /></div>
+        <div><h2 className="text-xl font-bold">Phone Device Intelligence</h2><p className="text-sm text-muted-foreground">Detect device type, OS, connected apps & account security</p></div>
+      </div>
+
+      <div className="flex gap-3">
+        <div className="relative flex-1">
+          <Cpu className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <Input placeholder="Enter phone number (e.g., 6281234567890)..." value={phone} onChange={(e) => setPhone(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && search()} className="pl-10 bg-card/50 border-border/50" />
+        </div>
+        <Button onClick={search} disabled={loading} className="bg-sky-600 hover:bg-sky-700 text-white min-w-[100px]">
+          {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Scan className="w-4 h-4 mr-2" />}{loading ? 'Scanning' : 'Scan'}
+        </Button>
+      </div>
+
+      {loading && <LoadingIndicator message="Scanning device type, apps, and security status..." />}
+      {error && <ErrorCard error={error} />}
+      {result && (
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
+          {/* Device Info */}
+          <Card className="border-sky-500/30 bg-sky-500/5">
+            <CardContent className="p-4">
+              <div className="flex items-center gap-2 mb-3"><Cpu className="w-4 h-4 text-sky-400" /><span className="text-sm font-semibold text-sky-400">Device Intelligence</span></div>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <div><div className="text-xs text-muted-foreground">Device Type</div><div className="text-sm font-medium">{result.deviceInfo?.likelyDeviceType || 'Unknown'}</div></div>
+                <div><div className="text-xs text-muted-foreground">Likely OS</div><div className="text-sm font-medium">{result.deviceInfo?.likelyOS || 'Unknown'}</div></div>
+                <div><div className="text-xs text-muted-foreground">Confidence</div><Badge variant="outline" className={`${result.deviceInfo?.confidence === 'high' ? 'text-emerald-400 border-emerald-500/30' : result.deviceInfo?.confidence === 'medium' ? 'text-amber-400 border-amber-500/30' : 'text-gray-400 border-gray-500/30'}`}>{result.deviceInfo?.confidence || 'unknown'}</Badge></div>
+                <div><div className="text-xs text-muted-foreground">Carrier</div><div className="text-sm font-medium">{result.analysis?.carrier}</div></div>
+              </div>
+              {result.deviceInfo?.detectedModels && result.deviceInfo.detectedModels.length > 0 && (
+                <div className="flex flex-wrap gap-2 mt-3">
+                  {result.deviceInfo.detectedModels.map((m) => <Badge key={m} className="bg-sky-500/15 text-sky-400 border-sky-500/30">{m}</Badge>)}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Security Score */}
+          {result.accountSecurity && (
+            <Card className="border-cyan-500/30 bg-cyan-500/5">
+              <CardContent className="p-4">
+                <div className="flex items-center gap-2 mb-3"><Shield className="w-4 h-4 text-cyan-400" /><span className="text-sm font-semibold text-cyan-400">Account Security</span></div>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  <div><div className="text-xs text-muted-foreground">Security Score</div><div className={`text-2xl font-bold ${getScoreColor(result.accountSecurity.securityScore)}`}>{result.accountSecurity.securityScore}/100</div></div>
+                  <div><div className="text-xs text-muted-foreground">2FA Enabled</div><div className="text-sm font-medium">{result.accountSecurity.twoFactorEnabled === null ? 'Unknown' : result.accountSecurity.twoFactorEnabled ? 'Yes' : 'No'}</div></div>
+                  <div><div className="text-xs text-muted-foreground">Compromised</div><div className="text-sm font-medium text-red-400">{result.accountSecurity.compromisedAccounts?.length || 0} accounts</div></div>
+                  <div><div className="text-xs text-muted-foreground">Password Change</div><div className="text-sm font-medium">{result.accountSecurity.lastPasswordChange || 'Unknown'}</div></div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Registered Apps */}
+          {result.registeredApps && result.registeredApps.length > 0 && (
+            <Card className="border-sky-500/30 bg-sky-500/5">
+              <CardHeader className="pb-2"><CardTitle className="text-sm font-medium flex items-center gap-2 text-sky-400"><Wifi className="w-4 h-4" /> Registered Apps ({result.detectedAppCount}/{result.registeredApps.length})</CardTitle></CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2">
+                  {result.registeredApps.map((app) => (
+                    <div key={app.name} className={`p-2.5 rounded-lg border text-center transition-all ${app.detected ? 'border-emerald-500/40 bg-emerald-500/10' : 'border-border/30 bg-card/20 opacity-60'}`}>
+                      <span className="text-xl block">{app.icon}</span>
+                      <div className="text-xs font-medium mt-1">{app.name}</div>
+                      {app.detected ? <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30 text-[9px] mt-1">Detected</Badge> : <Badge className="bg-gray-500/10 text-gray-500 border-gray-500/20 text-[9px] mt-1">—</Badge>}
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Connected Devices */}
+          {result.connectedDevices && result.connectedDevices.length > 0 && (
+            <Card className="border-violet-500/30 bg-violet-500/5">
+              <CardHeader className="pb-2"><CardTitle className="text-sm font-medium flex items-center gap-2 text-violet-400"><Cpu className="w-4 h-4" /> Connected Devices ({result.connectedDevices.length})</CardTitle></CardHeader>
+              <CardContent>
+                <div className="space-y-2 max-h-48 overflow-y-auto">{result.connectedDevices.map((dev, i) => (
+                  <div key={i} className="flex items-center justify-between p-2 rounded-lg border border-violet-500/20 bg-violet-500/5">
+                    <div><div className="text-sm font-medium">{dev.platform}</div><div className="text-xs text-muted-foreground">{dev.device} - {dev.os}</div></div>
+                    <Badge variant="outline" className="text-[9px]">{dev.confidence}</Badge>
+                  </div>
+                ))}</div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Data Leaks */}
+          {result.leakCount > 0 && (
+            <Card className="border-red-600/50 bg-red-600/10">
+              <CardContent className="p-4">
+                <div className="flex items-center gap-2 mb-3"><ShieldAlert className="w-5 h-5 text-red-400" /><span className="text-sm font-bold text-red-400">DATA LEAKS: {result.leakCount}</span></div>
+                <div className="space-y-2">{result.dataLeaks.map((leak, i) => (
+                  <div key={i} className="p-2 rounded-lg border border-red-500/30 bg-red-500/5">
+                    <div className="flex items-center gap-2"><SeverityBadge severity={leak.severity} /><span className="text-sm font-medium">{leak.type}</span></div>
+                    <p className="text-xs text-muted-foreground mt-1">{leak.description}</p>
+                  </div>
+                ))}</div>
+              </CardContent>
+            </Card>
+          )}
+
+          <Tabs defaultValue="device">
+            <TabsList className="bg-card/50 flex-wrap">
+              <TabsTrigger value="device" className="data-[state=active]:bg-sky-500/20 data-[state=active]:text-sky-400"><Cpu className="w-3 h-3 mr-1" /> Device ({result.deviceResults?.length || 0})</TabsTrigger>
+              <TabsTrigger value="apps" className="data-[state=active]:bg-emerald-500/20 data-[state=active]:text-emerald-400"><Wifi className="w-3 h-3 mr-1" /> Apps ({result.appResults?.length || 0})</TabsTrigger>
+              <TabsTrigger value="security" className="data-[state=active]:bg-amber-500/20 data-[state=active]:text-amber-400"><Shield className="w-3 h-3 mr-1" /> Security ({result.securityResults?.length || 0})</TabsTrigger>
+              <TabsTrigger value="ai" className="data-[state=active]:bg-emerald-500/20 data-[state=active]:text-emerald-400"><Brain className="w-3 h-3 mr-1" /> AI</TabsTrigger>
+            </TabsList>
+            <TabsContent value="device" className="mt-3"><div className="space-y-2 max-h-96 overflow-y-auto">{result.deviceResults?.map((r, i) => <ResultCard key={i} {...r} />)}</div></TabsContent>
+            <TabsContent value="apps" className="mt-3"><div className="space-y-2 max-h-96 overflow-y-auto">{result.appResults?.map((r, i) => <ResultCard key={i} {...r} />)}</div></TabsContent>
+            <TabsContent value="security" className="mt-3"><div className="space-y-2 max-h-96 overflow-y-auto">{result.securityResults?.map((r, i) => <ResultCard key={i} {...r} />)}</div></TabsContent>
+            <TabsContent value="ai" className="mt-3"><AIAnalysisCard analysis={result.aiAnalysis || ''} isLoading={false} /></TabsContent>
+          </Tabs>
+          <AIAnalysisCard analysis={result.aiAnalysis || ''} isLoading={false} />
+        </motion.div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
+// School/Student OSINT Module
+// ============================================================
+interface SchoolResult {
+  success: boolean;
+  query: string;
+  searchType: string;
+  schoolInfo: { name: string; npsn: string; address: string; province: string; city: string; level: string; status: string; accreditation: string } | null;
+  studentInfo: { name: string; school: string; level: string; year: string } | null;
+  schoolRecords: Array<{ title: string; snippet: string; url: string; source: string }>;
+  studentRecords: Array<{ title: string; snippet: string; url: string; source: string }>;
+  npsnResults: Array<{ title: string; snippet: string; url: string; source: string }>;
+  dapodikResults: Array<{ title: string; snippet: string; url: string; source: string }>;
+  socialResults: Array<{ title: string; snippet: string; url: string; domain: string }>;
+  dataLeaks: Array<{ type: string; severity: string; source: string; description: string; url: string }>;
+  leakCount: number;
+  achievementResults: Array<{ title: string; snippet: string; url: string; source: string }>;
+  aiAnalysis: string;
+}
+
+function SchoolModule() {
+  const [query, setQuery] = useState('');
+  const [searchType, setSearchType] = useState<'school' | 'student'>('school');
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState<SchoolResult | null>(null);
+  const [error, setError] = useState('');
+
+  const search = useCallback(async () => {
+    if (!query.trim()) return;
+    setLoading(true); setResult(null); setError('');
+    try {
+      const res = await fetch('/api/osint/school', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query: query.trim(), type: searchType }) });
+      const data = await res.json();
+      if (data.error) { setError(data.error); } else { setResult(data as SchoolResult); }
+    } catch { setError('Network error. Please check your connection and try again.'); }
+    finally { setLoading(false); }
+  }, [query, searchType]);
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center gap-3 mb-2">
+        <div className="p-2 rounded-lg bg-purple-500/20 border border-purple-500/30"><Users className="w-5 h-5 text-purple-400" /></div>
+        <div><h2 className="text-xl font-bold">School & Student OSINT</h2><p className="text-sm text-muted-foreground">Search school data, NPSN, Dapodik, student records & leaks</p></div>
+      </div>
+
+      <div className="flex gap-3">
+        <div className="relative flex-1">
+          <Users className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <Input placeholder={searchType === 'school' ? 'Enter school name (e.g., SMAN 1 Jakarta)...' : 'Enter student name...'} value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && search()} className="pl-10 bg-card/50 border-border/50" />
+        </div>
+        <Button onClick={search} disabled={loading} className="bg-purple-600 hover:bg-purple-700 text-white min-w-[100px]">
+          {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4 mr-2" />}{loading ? 'Searching' : 'Search'}
+        </Button>
+      </div>
+
+      {/* Search Type Toggle */}
+      <div className="flex gap-2">
+        <Button variant={searchType === 'school' ? 'default' : 'outline'} size="sm" onClick={() => setSearchType('school')} className={searchType === 'school' ? 'bg-purple-600 text-white' : 'border-purple-500/30 text-purple-400'}>
+          🏫 School
+        </Button>
+        <Button variant={searchType === 'student' ? 'default' : 'outline'} size="sm" onClick={() => setSearchType('student')} className={searchType === 'student' ? 'bg-purple-600 text-white' : 'border-purple-500/30 text-purple-400'}>
+          👨‍🎓 Student
+        </Button>
+      </div>
+
+      {loading && <LoadingIndicator message={`Searching ${searchType} OSINT data...`} />}
+      {error && <ErrorCard error={error} />}
+      {result && (
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
+          {/* School Info */}
+          {result.schoolInfo && (
+            <Card className="border-purple-500/30 bg-purple-500/5">
+              <CardContent className="p-4">
+                <div className="flex items-center gap-2 mb-3"><Users className="w-4 h-4 text-purple-400" /><span className="text-sm font-semibold text-purple-400">School Information</span></div>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  <div><div className="text-xs text-muted-foreground">Name</div><div className="text-sm font-medium">{result.schoolInfo.name}</div></div>
+                  <div><div className="text-xs text-muted-foreground">NPSN</div><div className="text-sm font-mono font-medium text-purple-400">{result.schoolInfo.npsn || '—'}</div></div>
+                  <div><div className="text-xs text-muted-foreground">Level</div><div className="text-sm font-medium">{result.schoolInfo.level || '—'}</div></div>
+                  <div><div className="text-xs text-muted-foreground">Status</div><div className="text-sm font-medium">{result.schoolInfo.status || '—'}</div></div>
+                  <div><div className="text-xs text-muted-foreground">Address</div><div className="text-sm font-medium">{result.schoolInfo.address || '—'}</div></div>
+                  <div><div className="text-xs text-muted-foreground">Province</div><div className="text-sm font-medium">{result.schoolInfo.province || '—'}</div></div>
+                  <div><div className="text-xs text-muted-foreground">City</div><div className="text-sm font-medium">{result.schoolInfo.city || '—'}</div></div>
+                  <div><div className="text-xs text-muted-foreground">Accreditation</div><div className="text-sm font-medium">{result.schoolInfo.accreditation || '—'}</div></div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Student Info */}
+          {result.studentInfo && (
+            <Card className="border-violet-500/30 bg-violet-500/5">
+              <CardContent className="p-4">
+                <div className="flex items-center gap-2 mb-3"><User className="w-4 h-4 text-violet-400" /><span className="text-sm font-semibold text-violet-400">Student Information</span></div>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  <div><div className="text-xs text-muted-foreground">Name</div><div className="text-sm font-medium">{result.studentInfo.name}</div></div>
+                  <div><div className="text-xs text-muted-foreground">School</div><div className="text-sm font-medium">{result.studentInfo.school || '—'}</div></div>
+                  <div><div className="text-xs text-muted-foreground">Level</div><div className="text-sm font-medium">{result.studentInfo.level || '—'}</div></div>
+                  <div><div className="text-xs text-muted-foreground">Year</div><div className="text-sm font-medium">{result.studentInfo.year || '—'}</div></div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Data Leaks */}
+          {result.leakCount > 0 && (
+            <Card className="border-red-600/50 bg-red-600/10">
+              <CardContent className="p-4">
+                <div className="flex items-center gap-2 mb-3"><ShieldAlert className="w-5 h-5 text-red-400" /><span className="text-sm font-bold text-red-400">🚨 DATA BOCOR: {result.leakCount}</span></div>
+                <div className="space-y-2">{result.dataLeaks.map((leak, i) => (
+                  <div key={i} className="p-2 rounded-lg border border-red-500/30 bg-red-500/5">
+                    <div className="flex items-center gap-2"><SeverityBadge severity={leak.severity} /><span className="text-sm font-medium">{leak.type}</span></div>
+                    <p className="text-xs text-muted-foreground mt-1">{leak.description}</p>
+                  </div>
+                ))}</div>
+              </CardContent>
+            </Card>
+          )}
+
+          <Tabs defaultValue="records">
+            <TabsList className="bg-card/50 flex-wrap">
+              <TabsTrigger value="records" className="data-[state=active]:bg-purple-500/20 data-[state=active]:text-purple-400"><FileSearch className="w-3 h-3 mr-1" /> Records ({result.schoolRecords?.length || 0})</TabsTrigger>
+              <TabsTrigger value="npsn" className="data-[state=active]:bg-amber-500/20 data-[state=active]:text-amber-400"><Key className="w-3 h-3 mr-1" /> NPSN ({result.npsnResults?.length || 0})</TabsTrigger>
+              <TabsTrigger value="dapodik" className="data-[state=active]:bg-cyan-500/20 data-[state=active]:text-cyan-400"><Database className="w-3 h-3 mr-1" /> Dapodik ({result.dapodikResults?.length || 0})</TabsTrigger>
+              <TabsTrigger value="social" className="data-[state=active]:bg-violet-500/20 data-[state=active]:text-violet-400"><Users className="w-3 h-3 mr-1" /> Social ({result.socialResults?.length || 0})</TabsTrigger>
+              <TabsTrigger value="achievements" className="data-[state=active]:bg-emerald-500/20 data-[state=active]:text-emerald-400"><Sparkles className="w-3 h-3 mr-1" /> Achievements ({result.achievementResults?.length || 0})</TabsTrigger>
+              <TabsTrigger value="ai" className="data-[state=active]:bg-emerald-500/20 data-[state=active]:text-emerald-400"><Brain className="w-3 h-3 mr-1" /> AI</TabsTrigger>
+            </TabsList>
+            <TabsContent value="records" className="mt-3"><div className="space-y-2 max-h-96 overflow-y-auto">{result.schoolRecords?.map((r, i) => <ResultCard key={i} title={r.title} snippet={r.snippet} url={r.url} domain={r.source} />)}{result.studentRecords?.map((r, i) => <ResultCard key={`s${i}`} title={r.title} snippet={r.snippet} url={r.url} domain={r.source} />)}</div></TabsContent>
+            <TabsContent value="npsn" className="mt-3"><div className="space-y-2 max-h-96 overflow-y-auto">{result.npsnResults?.map((r, i) => <ResultCard key={i} title={r.title} snippet={r.snippet} url={r.url} domain={r.source} />)}</div></TabsContent>
+            <TabsContent value="dapodik" className="mt-3"><div className="space-y-2 max-h-96 overflow-y-auto">{result.dapodikResults?.map((r, i) => <ResultCard key={i} title={r.title} snippet={r.snippet} url={r.url} domain={r.source} />)}</div></TabsContent>
+            <TabsContent value="social" className="mt-3"><div className="space-y-2 max-h-96 overflow-y-auto">{result.socialResults?.map((r, i) => <ResultCard key={i} {...r} />)}</div></TabsContent>
+            <TabsContent value="achievements" className="mt-3"><div className="space-y-2 max-h-96 overflow-y-auto">{result.achievementResults?.map((r, i) => <ResultCard key={i} title={r.title} snippet={r.snippet} url={r.url} domain={r.source} />)}</div></TabsContent>
+            <TabsContent value="ai" className="mt-3"><AIAnalysisCard analysis={result.aiAnalysis || ''} isLoading={false} /></TabsContent>
+          </Tabs>
+          <AIAnalysisCard analysis={result.aiAnalysis || ''} isLoading={false} />
+        </motion.div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
+// WiFi Access Point Tracker Module
+// ============================================================
+interface WifiResult {
+  success: boolean;
+  ssid: string;
+  bssid: string;
+  ouiInfo: { oui: string; manufacturer: string };
+  networkInfo: { encryption: string; channel: string; signalStrength: string; frequency: string };
+  locationResults: Array<{ url: string; title: string; snippet: string; domain: string }>;
+  securityResults: Array<{ url: string; title: string; snippet: string; domain: string }>;
+  vulnerabilityResults: Array<{ url: string; title: string; snippet: string; domain: string }>;
+  deviceResults: Array<{ url: string; title: string; snippet: string; domain: string }>;
+  dataLeaks: Array<{ type: string; severity: string; source: string; description: string; url: string }>;
+  leakCount: number;
+  aiAnalysis: string;
+}
+
+function WifiModule() {
+  const [ssid, setSsid] = useState('');
+  const [bssid, setBssid] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState<WifiResult | null>(null);
+  const [error, setError] = useState('');
+
+  const search = useCallback(async () => {
+    if (!ssid.trim() && !bssid.trim()) return;
+    setLoading(true); setResult(null); setError('');
+    try {
+      const res = await fetch('/api/osint/wifi', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ssid: ssid.trim() || undefined, bssid: bssid.trim() || undefined }) });
+      const data = await res.json();
+      if (data.error) { setError(data.error); } else { setResult(data as WifiResult); }
+    } catch { setError('Network error. Please check your connection and try again.'); }
+    finally { setLoading(false); }
+  }, [ssid, bssid]);
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center gap-3 mb-2">
+        <div className="p-2 rounded-lg bg-amber-500/20 border border-amber-500/30"><Wifi className="w-5 h-5 text-amber-400" /></div>
+        <div><h2 className="text-xl font-bold">WiFi Access Point Tracker</h2><p className="text-sm text-muted-foreground">Track WiFi BSSID/SSID location, OUI, router vulnerabilities</p></div>
+      </div>
+
+      <div className="space-y-3">
+        <div className="flex gap-3">
+          <div className="relative flex-1">
+            <Wifi className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <Input placeholder="SSID (WiFi name)..." value={ssid} onChange={(e) => setSsid(e.target.value)} className="pl-10 bg-card/50 border-border/50" />
+          </div>
+          <div className="relative flex-1">
+            <Network className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <Input placeholder="BSSID (AA:BB:CC:DD:EE:FF)..." value={bssid} onChange={(e) => setBssid(e.target.value)} className="pl-10 bg-card/50 border-border/50 font-mono" />
+          </div>
+        </div>
+        <Button onClick={search} disabled={loading || (!ssid.trim() && !bssid.trim())} className="bg-amber-600 hover:bg-amber-700 text-white w-full">
+          {loading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Radar className="w-4 h-4 mr-2" />}{loading ? 'Tracking...' : 'Track Access Point'}
+        </Button>
+      </div>
+
+      {loading && <LoadingIndicator message="Tracking WiFi access point and scanning vulnerabilities..." />}
+      {error && <ErrorCard error={error} />}
+      {result && (
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
+          {/* Network Info */}
+          <Card className="border-amber-500/30 bg-amber-500/5">
+            <CardContent className="p-4">
+              <div className="flex items-center gap-2 mb-3"><Wifi className="w-4 h-4 text-amber-400" /><span className="text-sm font-semibold text-amber-400">Network Information</span></div>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <div><div className="text-xs text-muted-foreground">SSID</div><div className="text-sm font-medium">{result.ssid || '—'}</div></div>
+                <div><div className="text-xs text-muted-foreground">BSSID</div><div className="text-sm font-mono font-medium">{result.bssid || '—'}</div></div>
+                <div><div className="text-xs text-muted-foreground">OUI Manufacturer</div><div className="text-sm font-medium text-amber-400">{result.ouiInfo?.manufacturer || 'Unknown'}</div></div>
+                <div><div className="text-xs text-muted-foreground">OUI</div><div className="text-sm font-mono">{result.ouiInfo?.oui || '—'}</div></div>
+              </div>
+              {result.networkInfo && (
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-3">
+                  <div><div className="text-xs text-muted-foreground">Encryption</div><div className="text-sm font-medium">{result.networkInfo.encryption || 'Unknown'}</div></div>
+                  <div><div className="text-xs text-muted-foreground">Channel</div><div className="text-sm font-medium">{result.networkInfo.channel || '—'}</div></div>
+                  <div><div className="text-xs text-muted-foreground">Signal</div><div className="text-sm font-medium">{result.networkInfo.signalStrength || '—'}</div></div>
+                  <div><div className="text-xs text-muted-foreground">Frequency</div><div className="text-sm font-medium">{result.networkInfo.frequency || '—'}</div></div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Data Leaks */}
+          {result.leakCount > 0 && (
+            <Card className="border-red-600/50 bg-red-600/10">
+              <CardContent className="p-4">
+                <div className="flex items-center gap-2 mb-3"><ShieldAlert className="w-5 h-5 text-red-400" /><span className="text-sm font-bold text-red-400">SECURITY ALERTS: {result.leakCount}</span></div>
+                <div className="space-y-2">{result.dataLeaks.map((leak, i) => (
+                  <div key={i} className="p-2 rounded-lg border border-red-500/30 bg-red-500/5">
+                    <div className="flex items-center gap-2"><SeverityBadge severity={leak.severity} /><span className="text-sm font-medium">{leak.type}</span></div>
+                    <p className="text-xs text-muted-foreground mt-1">{leak.description}</p>
+                  </div>
+                ))}</div>
+              </CardContent>
+            </Card>
+          )}
+
+          <Tabs defaultValue="location">
+            <TabsList className="bg-card/50 flex-wrap">
+              <TabsTrigger value="location" className="data-[state=active]:bg-amber-500/20 data-[state=active]:text-amber-400"><MapPin className="w-3 h-3 mr-1" /> Location ({result.locationResults?.length || 0})</TabsTrigger>
+              <TabsTrigger value="security" className="data-[state=active]:bg-emerald-500/20 data-[state=active]:text-emerald-400"><Shield className="w-3 h-3 mr-1" /> Security ({result.securityResults?.length || 0})</TabsTrigger>
+              <TabsTrigger value="vuln" className="data-[state=active]:bg-red-500/20 data-[state=active]:text-red-400"><Bug className="w-3 h-3 mr-1" /> Vulns ({result.vulnerabilityResults?.length || 0})</TabsTrigger>
+              <TabsTrigger value="devices" className="data-[state=active]:bg-cyan-500/20 data-[state=active]:text-cyan-400"><Cpu className="w-3 h-3 mr-1" /> Devices ({result.deviceResults?.length || 0})</TabsTrigger>
+              <TabsTrigger value="ai" className="data-[state=active]:bg-emerald-500/20 data-[state=active]:text-emerald-400"><Brain className="w-3 h-3 mr-1" /> AI</TabsTrigger>
+            </TabsList>
+            <TabsContent value="location" className="mt-3"><div className="space-y-2 max-h-96 overflow-y-auto">{result.locationResults?.map((r, i) => <ResultCard key={i} {...r} />)}</div></TabsContent>
+            <TabsContent value="security" className="mt-3"><div className="space-y-2 max-h-96 overflow-y-auto">{result.securityResults?.map((r, i) => <ResultCard key={i} {...r} />)}</div></TabsContent>
+            <TabsContent value="vuln" className="mt-3"><div className="space-y-2 max-h-96 overflow-y-auto">{result.vulnerabilityResults?.map((r, i) => <ResultCard key={i} {...r} />)}</div></TabsContent>
+            <TabsContent value="devices" className="mt-3"><div className="space-y-2 max-h-96 overflow-y-auto">{result.deviceResults?.map((r, i) => <ResultCard key={i} {...r} />)}</div></TabsContent>
+            <TabsContent value="ai" className="mt-3"><AIAnalysisCard analysis={result.aiAnalysis || ''} isLoading={false} /></TabsContent>
+          </Tabs>
+          <AIAnalysisCard analysis={result.aiAnalysis || ''} isLoading={false} />
+        </motion.div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
+// Social Media Deep Scan Module
+// ============================================================
+interface SocialProfile { platform: string; icon: string; url: string; detected: boolean; category: string; confidence: string; }
+interface SocialProfileDetail { platform: string; bio: string; followers: string; following: string; posts: string; verified: boolean; accountAge: string; }
+interface SocialResult {
+  success: boolean;
+  username: string;
+  profiles: SocialProfile[];
+  detectedCount: number;
+  totalChecked: number;
+  profileDetails: SocialProfileDetail[];
+  linkedAccounts: Array<{ platform: string; url: string; username: string }>;
+  dataLeaks: Array<{ type: string; severity: string; source: string; description: string; url: string }>;
+  leakCount: number;
+  digitalFootprint: { score: number; riskLevel: string; exposureLevel: string };
+  searchResults: Array<{ url: string; title: string; snippet: string; domain: string }>;
+  aiAnalysis: string;
+}
+
+function SocialModule() {
+  const [username, setUsername] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState<SocialResult | null>(null);
+  const [error, setError] = useState('');
+
+  const search = useCallback(async () => {
+    if (!username.trim()) return;
+    setLoading(true); setResult(null); setError('');
+    try {
+      const res = await fetch('/api/osint/social', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: username.trim() }) });
+      const data = await res.json();
+      if (data.error) { setError(data.error); } else { setResult(data as SocialResult); }
+    } catch { setError('Network error. Please check your connection and try again.'); }
+    finally { setLoading(false); }
+  }, [username]);
+
+  const getFootprintColor = (score: number) => score >= 70 ? 'text-red-400' : score >= 40 ? 'text-amber-400' : 'text-emerald-400';
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center gap-3 mb-2">
+        <div className="p-2 rounded-lg bg-pink-500/20 border border-pink-500/30"><Users className="w-5 h-5 text-pink-400" /></div>
+        <div><h2 className="text-xl font-bold">Social Media Deep Scan</h2><p className="text-sm text-muted-foreground">Deep scan across 31+ platforms with digital footprint scoring</p></div>
+      </div>
+
+      <div className="flex gap-3">
+        <div className="relative flex-1">
+          <Fingerprint className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <Input placeholder="Enter username to deep scan..." value={username} onChange={(e) => setUsername(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && search()} className="pl-10 bg-card/50 border-border/50" />
+        </div>
+        <Button onClick={search} disabled={loading} className="bg-pink-600 hover:bg-pink-700 text-white min-w-[100px]">
+          {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Scan className="w-4 h-4 mr-2" />}{loading ? 'Scanning' : 'Deep Scan'}
+        </Button>
+      </div>
+
+      {loading && <LoadingIndicator message={`Deep scanning "${username}" across 31+ social platforms...`} />}
+      {error && <ErrorCard error={error} />}
+      {result && (
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
+          {/* Digital Footprint Score */}
+          <Card className="border-pink-500/30 bg-pink-500/5">
+            <CardContent className="p-4">
+              <div className="flex items-center gap-2 mb-3"><Fingerprint className="w-4 h-4 text-pink-400" /><span className="text-sm font-semibold text-pink-400">Digital Footprint</span></div>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <div><div className="text-xs text-muted-foreground">Footprint Score</div><div className={`text-2xl font-bold ${getFootprintColor(result.digitalFootprint?.score || 0)}`}>{result.digitalFootprint?.score || 0}/100</div></div>
+                <div><div className="text-xs text-muted-foreground">Risk Level</div><ThreatLevelBadge level={result.digitalFootprint?.riskLevel || 'low'} /></div>
+                <div><div className="text-xs text-muted-foreground">Exposure</div><Badge variant="outline" className="text-sm">{result.digitalFootprint?.exposureLevel || 'minimal'}</Badge></div>
+                <div><div className="text-xs text-muted-foreground">Detected</div><div className="text-sm font-medium">{result.detectedCount}/{result.totalChecked} platforms</div></div>
+              </div>
+              <Progress value={(result.detectedCount / result.totalChecked) * 100} className="h-2 mt-3" />
+            </CardContent>
+          </Card>
+
+          {/* Profile Grid */}
+          {result.profiles && result.profiles.length > 0 && (
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+              {result.profiles.map((p) => (
+                <motion.div key={p.platform} initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
+                  className={`flex items-center justify-between p-2.5 rounded-lg border transition-all ${p.detected ? 'border-emerald-500/30 bg-emerald-500/5' : 'border-border/30 bg-card/20 opacity-50'}`}>
+                  <div className="flex items-center gap-2">
+                    <span className="text-lg">{p.icon}</span>
+                    <div><div className="text-xs font-medium">{p.platform}</div><div className="text-[9px] text-muted-foreground">{p.category}</div></div>
+                  </div>
+                  {p.detected ? <CheckCircle2 className="w-4 h-4 text-emerald-400" /> : <XCircle className="w-4 h-4 text-gray-600" />}
+                </motion.div>
+              ))}
+            </div>
+          )}
+
+          {/* Profile Details */}
+          {result.profileDetails && result.profileDetails.length > 0 && (
+            <Card className="border-pink-500/30 bg-pink-500/5">
+              <CardHeader className="pb-2"><CardTitle className="text-sm font-medium flex items-center gap-2 text-pink-400"><User className="w-4 h-4" /> Profile Details ({result.profileDetails.length})</CardTitle></CardHeader>
+              <CardContent>
+                <div className="space-y-2 max-h-64 overflow-y-auto">{result.profileDetails.map((pd, i) => (
+                  <div key={i} className="p-3 rounded-lg border border-border/30 bg-card/30">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-sm font-medium">{pd.platform}</span>
+                      {pd.verified && <Badge className="bg-sky-500/20 text-sky-400 border-sky-500/30 text-[9px]">✓ Verified</Badge>}
+                    </div>
+                    <p className="text-xs text-muted-foreground line-clamp-2">{pd.bio || 'No bio'}</p>
+                    <div className="flex gap-3 mt-1 text-[10px] text-muted-foreground">
+                      {pd.followers && <span>👥 {pd.followers}</span>}
+                      {pd.following && <span>→ {pd.following}</span>}
+                      {pd.posts && <span>📝 {pd.posts}</span>}
+                      {pd.accountAge && <span>📅 {pd.accountAge}</span>}
+                    </div>
+                  </div>
+                ))}</div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Data Leaks */}
+          {result.leakCount > 0 && (
+            <Card className="border-red-600/50 bg-red-600/10">
+              <CardContent className="p-4">
+                <div className="flex items-center gap-2 mb-3"><ShieldAlert className="w-5 h-5 text-red-400" /><span className="text-sm font-bold text-red-400">DATA LEAKS: {result.leakCount}</span></div>
+                <div className="space-y-2">{result.dataLeaks.map((leak, i) => (
+                  <div key={i} className="p-2 rounded-lg border border-red-500/30 bg-red-500/5">
+                    <div className="flex items-center gap-2"><SeverityBadge severity={leak.severity} /><span className="text-sm font-medium">{leak.type}</span></div>
+                    <p className="text-xs text-muted-foreground mt-1">{leak.description}</p>
+                  </div>
+                ))}</div>
+              </CardContent>
+            </Card>
+          )}
+
+          <Tabs defaultValue="results">
+            <TabsList className="bg-card/50 flex-wrap">
+              <TabsTrigger value="results" className="data-[state=active]:bg-pink-500/20 data-[state=active]:text-pink-400"><FileSearch className="w-3 h-3 mr-1" /> Results ({result.searchResults?.length || 0})</TabsTrigger>
+              <TabsTrigger value="linked" className="data-[state=active]:bg-cyan-500/20 data-[state=active]:text-cyan-400"><Users className="w-3 h-3 mr-1" /> Linked ({result.linkedAccounts?.length || 0})</TabsTrigger>
+              <TabsTrigger value="ai" className="data-[state=active]:bg-emerald-500/20 data-[state=active]:text-emerald-400"><Brain className="w-3 h-3 mr-1" /> AI</TabsTrigger>
+            </TabsList>
+            <TabsContent value="results" className="mt-3"><div className="space-y-2 max-h-96 overflow-y-auto">{result.searchResults?.map((r, i) => <ResultCard key={i} {...r} />)}</div></TabsContent>
+            <TabsContent value="linked" className="mt-3"><div className="space-y-2 max-h-96 overflow-y-auto">{result.linkedAccounts?.map((la, i) => (
+              <div key={i} className="p-2 rounded-lg border border-cyan-500/20 bg-cyan-500/5 flex items-center justify-between">
+                <div><div className="text-sm font-medium">{la.platform}</div><div className="text-xs text-muted-foreground">{la.username}</div></div>
+                <a href={la.url} target="_blank" rel="noopener noreferrer"><ExternalLink className="w-3 h-3 text-muted-foreground hover:text-foreground" /></a>
+              </div>
+            ))}</div></TabsContent>
+            <TabsContent value="ai" className="mt-3"><AIAnalysisCard analysis={result.aiAnalysis || ''} isLoading={false} /></TabsContent>
+          </Tabs>
+          <AIAnalysisCard analysis={result.aiAnalysis || ''} isLoading={false} />
+        </motion.div>
+      )}
+    </div>
+  );
+}
+
 function SidebarContent({ activeModule, sidebarOpen, onNavigate }: {
   activeModule: ModuleType;
   sidebarOpen: boolean;
@@ -2578,6 +3334,11 @@ export default function OSINTApp() {
       case 'mac': return <MACModule />;
       case 'bitcoin': return <BitcoinModule />;
       case 'vehicle': return <VehicleModule />;
+      case 'phonelocation': return <PhoneLocationModule />;
+      case 'phonedevice': return <PhoneDeviceModule />;
+      case 'school': return <SchoolModule />;
+      case 'wifi': return <WifiModule />;
+      case 'social': return <SocialModule />;
       case 'aichat': return <AIChatModule />;
       default: return <DashboardModule />;
     }
