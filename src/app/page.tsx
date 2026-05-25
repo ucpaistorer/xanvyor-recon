@@ -8,7 +8,7 @@ import {
   CheckCircle2, XCircle, HelpCircle, Loader2, Send, Image as ImageIcon,
   MapPin, Key, Activity, Database, Radar, Fingerprint, Network,
   ArrowRight, Layers, Zap, Target, Scan, FileSearch,
-  Cpu, Lock, Unlock,
+  Cpu, Lock, Unlock, Upload, Copy, Check,
   Home, ChevronLeft, ChevronRight, Menu, X, Sparkles,
   ShieldAlert, ShieldCheck, ShieldX, ShieldQuestion,
   Users, Bug, Globe2, CloudOff, Cloud,
@@ -27,7 +27,7 @@ import ReactMarkdown from 'react-markdown';
 // ============================================================
 // Types
 // ============================================================
-type ModuleType = 'dashboard' | 'username' | 'email' | 'ip' | 'domain' | 'phone' | 'websearch' | 'image' | 'aichat' | 'dns';
+type ModuleType = 'dashboard' | 'username' | 'email' | 'ip' | 'domain' | 'phone' | 'websearch' | 'image' | 'aichat' | 'dns' | 'nik' | 'ktptrack';
 
 interface Module {
   id: ModuleType;
@@ -47,6 +47,8 @@ const MODULES: Module[] = [
   { id: 'websearch', name: 'Web Intel', icon: <Search className="w-4 h-4" />, description: 'AI-powered web search', color: 'from-emerald-500 to-green-500' },
   { id: 'image', name: 'Image Forensics', icon: <ImageIcon className="w-4 h-4" />, description: 'VLM image analysis', color: 'from-sky-500 to-indigo-500' },
   { id: 'dns', name: 'DNS Recon', icon: <Network className="w-4 h-4" />, description: 'DNS enumeration', color: 'from-lime-500 to-green-500' },
+  { id: 'nik', name: 'NIK Check', icon: <Key className="w-4 h-4" />, description: 'NIK decode & KK data', color: 'from-orange-500 to-amber-500' },
+  { id: 'ktptrack', name: 'KTP Tracker', icon: <MapPin className="w-4 h-4" />, description: 'KTP photo & location', color: 'from-teal-500 to-cyan-500' },
   { id: 'aichat', name: 'RECON-AI', icon: <Brain className="w-4 h-4" />, description: 'OSINT AI assistant', color: 'from-fuchsia-500 to-pink-500' },
 ];
 
@@ -192,7 +194,7 @@ function ResultCard({ title, snippet, url, date, domain }: { title: string; snip
 // ============================================================
 function DashboardModule() {
   const stats = [
-    { label: 'Tools Available', value: '10+', icon: <Layers className="w-5 h-5" />, color: 'text-emerald-400' },
+    { label: 'Tools Available', value: '12+', icon: <Layers className="w-5 h-5" />, color: 'text-emerald-400' },
     { label: 'AI Engines', value: '4', icon: <Cpu className="w-5 h-5" />, color: 'text-cyan-400' },
     { label: 'Data Sources', value: '100+', icon: <Database className="w-5 h-5" />, color: 'text-amber-400' },
     { label: 'Real-time', value: 'Yes', icon: <Activity className="w-5 h-5" />, color: 'text-rose-400' },
@@ -207,6 +209,8 @@ function DashboardModule() {
     { icon: <Search className="w-5 h-5" />, title: 'Web Intelligence', desc: 'AI-powered deep web search with automatic intelligence analysis' },
     { icon: <ImageIcon className="w-5 h-5" />, title: 'Image Forensics', desc: 'VLM-powered image analysis for geolocation, EXIF data, and visual intelligence' },
     { icon: <Network className="w-5 h-5" />, title: 'DNS Reconnaissance', desc: 'DNSSEC check, SPF/DKIM/DMARC assessment, and email security scoring' },
+    { icon: <Key className="w-5 h-5" />, title: 'NIK Check', desc: 'Decode NIK structure, derive KK number, area code intelligence, and data leak detection' },
+    { icon: <MapPin className="w-5 h-5" />, title: 'KTP Location Tracker', desc: 'VLM-powered KTP data extraction, geocoding, and interactive map tracking' },
     { icon: <Brain className="w-5 h-5" />, title: 'RECON-AI Assistant', desc: 'Conversational OSINT AI for analysis guidance and intelligence synthesis' },
     { icon: <Radar className="w-5 h-5" />, title: 'Threat Intelligence', desc: 'Real-time threat assessment powered by AI across all modules' },
   ];
@@ -1110,6 +1114,437 @@ function DNSModule() {
 }
 
 // ============================================================
+// NIK Check Module
+// ============================================================
+interface NIKResult {
+  success: boolean;
+  nik: string;
+  decoded: {
+    nik: string;
+    birthDate: string;
+    gender: 'Male' | 'Female';
+    areaCode: string;
+    province: string;
+    city: string;
+    subdistrict: string;
+    kkNumber: string;
+    nikValid: boolean;
+    validationNotes: string[];
+  };
+  areaInfo: Array<{ title: string; snippet: string; url: string; source: string }>;
+  publicData: Array<{ title: string; snippet: string; url: string; source: string }>;
+  dataLeaks: Array<{ type: string; severity: string; source: string; description: string; url: string }>;
+  leakCount: number;
+  kkData: Array<{ title: string; snippet: string; url: string; source: string }>;
+  aiAnalysis: string;
+}
+
+function NIKModule() {
+  const [nik, setNik] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState<NIKResult | null>(null);
+  const [error, setError] = useState('');
+  const [copiedKK, setCopiedKK] = useState(false);
+
+  const search = useCallback(async () => {
+    if (!nik.trim()) return;
+    setLoading(true); setResult(null); setError('');
+    try {
+      const res = await fetch('/api/osint/nik', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ nik: nik.trim() }) });
+      const data = await res.json();
+      if (data.error) { setError(data.error); } else { setResult(data as NIKResult); }
+    } catch { setError('Network error. Please check your connection and try again.'); }
+    finally { setLoading(false); }
+  }, [nik]);
+
+  const copyKK = useCallback(() => {
+    if (result?.decoded?.kkNumber) {
+      navigator.clipboard.writeText(result.decoded.kkNumber);
+      setCopiedKK(true);
+      setTimeout(() => setCopiedKK(false), 2000);
+    }
+  }, [result]);
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center gap-3 mb-2">
+        <div className="p-2 rounded-lg bg-orange-500/20 border border-orange-500/30"><Key className="w-5 h-5 text-orange-400" /></div>
+        <div><h2 className="text-xl font-bold">NIK Check</h2><p className="text-sm text-muted-foreground">Decode NIK structure & derive KK number</p></div>
+      </div>
+
+      <div className="flex gap-3">
+        <div className="relative flex-1">
+          <Key className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <Input placeholder="Enter 16-digit NIK number..." value={nik} onChange={(e) => setNik(e.target.value.replace(/\D/g, '').slice(0, 16))} onKeyDown={(e) => e.key === 'Enter' && search()} className="pl-10 bg-card/50 border-border/50 font-mono tracking-wider" maxLength={16} />
+        </div>
+        <Button onClick={search} disabled={loading || nik.length !== 16} className="bg-orange-600 hover:bg-orange-700 text-white min-w-[100px]">
+          {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Scan className="w-4 h-4 mr-2" />}{loading ? 'Decoding' : 'Decode'}
+        </Button>
+      </div>
+
+      {nik.length > 0 && nik.length < 16 && (
+        <p className="text-xs text-amber-400">{nik.length}/16 digits entered</p>
+      )}
+
+      {loading && <LoadingIndicator message="Decoding NIK structure and searching for intelligence data..." />}
+      {error && <ErrorCard error={error} />}
+      {result && (
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
+          {/* Decoded NIK Data Card */}
+          <Card className="border-orange-500/30 bg-orange-500/5">
+            <CardContent className="p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <Key className="w-4 h-4 text-orange-400" />
+                <span className="text-sm font-semibold text-orange-400">Decoded NIK Data</span>
+                {result.decoded.nikValid ? (
+                  <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30 text-xs"><CheckCircle2 className="w-3 h-3 mr-1" />Valid</Badge>
+                ) : (
+                  <Badge className="bg-red-500/20 text-red-400 border-red-500/30 text-xs"><XCircle className="w-3 h-3 mr-1" />Invalid</Badge>
+                )}
+              </div>
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+                <div><div className="text-xs text-muted-foreground">NIK</div><div className="text-sm font-mono font-medium">{result.decoded.nik}</div></div>
+                <div><div className="text-xs text-muted-foreground">Birth Date</div><div className="text-sm font-medium">{result.decoded.birthDate}</div></div>
+                <div><div className="text-xs text-muted-foreground">Gender</div><div className="text-sm font-medium">{result.decoded.gender}</div></div>
+                <div><div className="text-xs text-muted-foreground">Area Code</div><div className="text-sm font-mono font-medium">{result.decoded.areaCode}</div></div>
+                <div><div className="text-xs text-muted-foreground">KK Number</div>
+                  <div className="flex items-center gap-1">
+                    <span className="text-sm font-mono font-medium">{result.decoded.kkNumber}</span>
+                    <button onClick={copyKK} className="p-1 rounded hover:bg-card/50 text-muted-foreground hover:text-orange-400 transition-colors" title="Copy KK Number">
+                      {copiedKK ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                    </button>
+                  </div>
+                </div>
+              </div>
+              {result.decoded.validationNotes?.length > 0 && (
+                <div className="flex flex-wrap gap-2 mt-3">
+                  {result.decoded.validationNotes.map((note, i) => (
+                    <Badge key={i} variant="outline" className={`text-[10px] ${note.toLowerCase().includes('invalid') || note.toLowerCase().includes('mismatch') ? 'text-amber-400 border-amber-500/30' : 'text-emerald-400 border-emerald-500/30'}`}>{note}</Badge>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* KK Data Card */}
+          <Card className="border-amber-500/30 bg-amber-500/5">
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <Fingerprint className="w-4 h-4 text-amber-400" />
+                  <span className="text-sm font-semibold text-amber-400">Kartu Keluarga (KK) Data</span>
+                </div>
+                <button onClick={copyKK} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/15 border border-amber-500/30 text-amber-400 text-xs font-medium hover:bg-amber-500/25 transition-colors">
+                  {copiedKK ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                  {copiedKK ? 'Copied!' : 'Copy KK'}
+                </button>
+              </div>
+              <div className="p-3 rounded-lg bg-card/50 border border-border/30">
+                <div className="text-xs text-muted-foreground mb-1">Derived KK Number</div>
+                <div className="text-2xl font-mono font-bold text-amber-400 tracking-widest">{result.decoded.kkNumber}</div>
+                <p className="text-xs text-muted-foreground mt-2">KK number is derived from the first 12 digits of NIK + &quot;0000&quot;</p>
+              </div>
+              {result.kkData?.length > 0 && (
+                <div className="mt-3 space-y-2 max-h-40 overflow-y-auto">
+                  {result.kkData.map((d, i) => (
+                    <div key={i} className="p-2 rounded-lg border border-border/30 bg-card/30">
+                      <div className="flex items-start justify-between gap-2">
+                        <div><div className="text-xs font-medium">{d.title}</div><p className="text-[10px] text-muted-foreground mt-0.5 line-clamp-2">{d.snippet}</p></div>
+                        {d.url && <a href={d.url} target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:text-foreground"><ExternalLink className="w-3 h-3" /></a>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Area/Province Info */}
+          <Card className="border-orange-500/30 bg-orange-500/5">
+            <CardContent className="p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <MapPin className="w-4 h-4 text-orange-400" />
+                <span className="text-sm font-semibold text-orange-400">Area / Province Info</span>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div className="p-3 rounded-lg bg-card/50 border border-border/30">
+                  <div className="text-xs text-muted-foreground">Province</div>
+                  <div className="text-sm font-medium mt-1">{result.decoded.province || 'Not identified'}</div>
+                </div>
+                <div className="p-3 rounded-lg bg-card/50 border border-border/30">
+                  <div className="text-xs text-muted-foreground">City / Kabupaten</div>
+                  <div className="text-sm font-medium mt-1">{result.decoded.city || 'Not identified'}</div>
+                </div>
+                <div className="p-3 rounded-lg bg-card/50 border border-border/30">
+                  <div className="text-xs text-muted-foreground">Subdistrict</div>
+                  <div className="text-sm font-medium mt-1">{result.decoded.subdistrict || 'Not identified'}</div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Data Leaks */}
+          {result.dataLeaks?.length > 0 && (
+            <Card className="border-red-600/50 bg-red-600/10">
+              <CardContent className="p-4">
+                <div className="flex items-center gap-2 mb-3">
+                  <ShieldAlert className="w-5 h-5 text-red-400" />
+                  <span className="text-sm font-bold text-red-400">DATA LEAKS DETECTED: {result.leakCount}</span>
+                </div>
+                <div className="space-y-2">
+                  {result.dataLeaks.map((leak, i) => (
+                    <div key={i} className="p-2 rounded-lg border border-red-500/30 bg-red-500/5">
+                      <div className="flex items-center gap-2"><SeverityBadge severity={leak.severity} /><span className="text-sm font-medium">{leak.type}</span></div>
+                      <p className="text-xs text-muted-foreground mt-1">{leak.description}</p>
+                      {leak.url && <a href={leak.url} target="_blank" rel="noopener noreferrer" className="text-[10px] text-red-400 hover:underline flex items-center gap-1 mt-1"><ExternalLink className="w-2 h-2" />{leak.source}</a>}
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Tabs */}
+          <Tabs defaultValue="area">
+            <TabsList className="bg-card/50 flex-wrap">
+              <TabsTrigger value="area" className="data-[state=active]:bg-orange-500/20 data-[state=active]:text-orange-400"><MapPin className="w-3 h-3 mr-1" /> Area Info ({result.areaInfo?.length || 0})</TabsTrigger>
+              <TabsTrigger value="public" className="data-[state=active]:bg-amber-500/20 data-[state=active]:text-amber-400"><FileSearch className="w-3 h-3 mr-1" /> Public Data ({result.publicData?.length || 0})</TabsTrigger>
+              <TabsTrigger value="kk" className="data-[state=active]:bg-cyan-500/20 data-[state=active]:text-cyan-400"><Fingerprint className="w-3 h-3 mr-1" /> KK Data ({result.kkData?.length || 0})</TabsTrigger>
+              <TabsTrigger value="ai" className="data-[state=active]:bg-emerald-500/20 data-[state=active]:text-emerald-400"><Brain className="w-3 h-3 mr-1" /> AI Analysis</TabsTrigger>
+            </TabsList>
+            <TabsContent value="area" className="mt-3"><div className="space-y-2 max-h-96 overflow-y-auto">{result.areaInfo?.map((r, i) => <ResultCard key={i} title={r.title} snippet={r.snippet} url={r.url} domain={r.source} />)}</div></TabsContent>
+            <TabsContent value="public" className="mt-3"><div className="space-y-2 max-h-96 overflow-y-auto">{result.publicData?.map((r, i) => <ResultCard key={i} title={r.title} snippet={r.snippet} url={r.url} domain={r.source} />)}</div></TabsContent>
+            <TabsContent value="kk" className="mt-3"><div className="space-y-2 max-h-96 overflow-y-auto">{result.kkData?.map((r, i) => <ResultCard key={i} title={r.title} snippet={r.snippet} url={r.url} domain={r.source} />)}</div></TabsContent>
+            <TabsContent value="ai" className="mt-3"><AIAnalysisCard analysis={result.aiAnalysis || ''} isLoading={false} /></TabsContent>
+          </Tabs>
+
+          <AIAnalysisCard analysis={result.aiAnalysis || ''} isLoading={false} />
+        </motion.div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
+// KTP Location Tracker Module
+// ============================================================
+interface KTPTrackResult {
+  success: boolean;
+  ktpData: {
+    nik: string; nama: string; tempatTglLahir: string; jenisKelamin: string;
+    alamat: string; rtRw: string; kelDesa: string; kecamatan: string;
+    agama: string; statusPerkawinan: string; pekerjaan: string;
+    kewarganegaraan: string; provinsi: string; kabupatenKota: string; berlakuHingga: string;
+  };
+  location: {
+    fullAddress: string; latitude: number | null; longitude: number | null;
+    mapUrl: string; embedUrl: string; openStreetMapUrl: string;
+  };
+  publicRecords: Array<{ title: string; snippet: string; url: string; domain: string; type: string }>;
+  dataLeaks: Array<{ type: string; severity: string; source: string; description: string; url: string }>;
+  aiAnalysis: string;
+}
+
+function KTPTrackModule() {
+  const [imageUrl, setImageUrl] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState<KTPTrackResult | null>(null);
+  const [error, setError] = useState('');
+
+  const search = useCallback(async () => {
+    if (!imageUrl.trim()) return;
+    setLoading(true); setResult(null); setError('');
+    try {
+      const res = await fetch('/api/osint/ktp-track', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ imageUrl: imageUrl.trim() }) });
+      const data = await res.json();
+      if (data.error) { setError(data.error); } else { setResult(data as KTPTrackResult); }
+    } catch { setError('Network error. Please check your connection and try again.'); }
+    finally { setLoading(false); }
+  }, [imageUrl]);
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center gap-3 mb-2">
+        <div className="p-2 rounded-lg bg-teal-500/20 border border-teal-500/30"><MapPin className="w-5 h-5 text-teal-400" /></div>
+        <div><h2 className="text-xl font-bold">KTP Location Tracker</h2><p className="text-sm text-muted-foreground">Extract KTP data & track location from photo</p></div>
+      </div>
+
+      <div className="flex gap-3">
+        <div className="relative flex-1">
+          <Upload className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <Input placeholder="Enter KTP photo URL..." value={imageUrl} onChange={(e) => setImageUrl(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && search()} className="pl-10 bg-card/50 border-border/50" />
+        </div>
+        <Button onClick={search} disabled={loading} className="bg-teal-600 hover:bg-teal-700 text-white min-w-[100px]">
+          {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <MapPin className="w-4 h-4 mr-2" />}{loading ? 'Tracking' : 'Track'}
+        </Button>
+      </div>
+
+      {loading && <LoadingIndicator message="Analyzing KTP image with VLM and tracking location..." />}
+      {error && <ErrorCard error={error} />}
+      {result && (
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
+          {/* KTP Image Preview */}
+          <Card className="border-teal-500/30 bg-teal-500/5">
+            <CardContent className="p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <ImageIcon className="w-4 h-4 text-teal-400" />
+                <span className="text-sm font-semibold text-teal-400">KTP Image</span>
+              </div>
+              <div className="rounded-lg overflow-hidden border border-border/30">
+                <img src={imageUrl} alt="KTP Preview" className="max-h-64 mx-auto object-contain" />
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Extracted KTP Data */}
+          <Card className="border-teal-500/30 bg-teal-500/5">
+            <CardContent className="p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <Fingerprint className="w-4 h-4 text-teal-400" />
+                <span className="text-sm font-semibold text-teal-400">Extracted KTP Data</span>
+              </div>
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+                {[
+                  { label: 'NIK', value: result.ktpData.nik },
+                  { label: 'Nama', value: result.ktpData.nama },
+                  { label: 'Tempat/Tgl Lahir', value: result.ktpData.tempatTglLahir },
+                  { label: 'Jenis Kelamin', value: result.ktpData.jenisKelamin },
+                  { label: 'Alamat', value: result.ktpData.alamat },
+                  { label: 'RT/RW', value: result.ktpData.rtRw },
+                  { label: 'Kel/Desa', value: result.ktpData.kelDesa },
+                  { label: 'Kecamatan', value: result.ktpData.kecamatan },
+                  { label: 'Agama', value: result.ktpData.agama },
+                  { label: 'Status', value: result.ktpData.statusPerkawinan },
+                  { label: 'Pekerjaan', value: result.ktpData.pekerjaan },
+                  { label: 'Kewarganegaraan', value: result.ktpData.kewarganegaraan },
+                  { label: 'Provinsi', value: result.ktpData.provinsi },
+                  { label: 'Kabupaten/Kota', value: result.ktpData.kabupatenKota },
+                  { label: 'Berlaku Hingga', value: result.ktpData.berlakuHingga },
+                ].map((field) => (
+                  <div key={field.label} className="p-2 rounded-lg bg-card/50 border border-border/30">
+                    <div className="text-[10px] text-muted-foreground">{field.label}</div>
+                    <div className="text-xs font-medium mt-0.5 break-words">{field.value || '—'}</div>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Location Card */}
+          <Card className="border-cyan-500/30 bg-cyan-500/5">
+            <CardContent className="p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <MapPin className="w-4 h-4 text-cyan-400" />
+                <span className="text-sm font-semibold text-cyan-400">Location</span>
+                {result.location.latitude !== null && (
+                  <Badge className="bg-cyan-500/20 text-cyan-400 border-cyan-500/30 text-xs">
+                    <CheckCircle2 className="w-3 h-3 mr-1" />Coordinates Found
+                  </Badge>
+                )}
+              </div>
+              <div className="p-3 rounded-lg bg-card/50 border border-border/30 mb-3">
+                <div className="text-xs text-muted-foreground">Full Address</div>
+                <div className="text-sm font-medium mt-1">{result.location.fullAddress}</div>
+                {result.location.latitude !== null && (
+                  <div className="flex items-center gap-4 mt-2">
+                    <div className="text-xs text-muted-foreground">Lat: <span className="font-mono text-cyan-400">{result.location.latitude}</span></div>
+                    <div className="text-xs text-muted-foreground">Lng: <span className="font-mono text-cyan-400">{result.location.longitude}</span></div>
+                  </div>
+                )}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <a href={result.location.mapUrl} target="_blank" rel="noopener noreferrer">
+                  <Button variant="outline" size="sm" className="border-cyan-500/30 text-cyan-400 hover:bg-cyan-500/10">
+                    <MapPin className="w-3 h-3 mr-1" />Google Maps
+                  </Button>
+                </a>
+                <a href={result.location.openStreetMapUrl} target="_blank" rel="noopener noreferrer">
+                  <Button variant="outline" size="sm" className="border-teal-500/30 text-teal-400 hover:bg-teal-500/10">
+                    <Globe className="w-3 h-3 mr-1" />OpenStreetMap
+                  </Button>
+                </a>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Interactive Map */}
+          {result.location.latitude !== null && result.location.longitude !== null && (
+            <Card className="border-teal-500/30 bg-teal-500/5">
+              <CardContent className="p-4">
+                <div className="flex items-center gap-2 mb-3">
+                  <Globe2 className="w-4 h-4 text-teal-400" />
+                  <span className="text-sm font-semibold text-teal-400">Interactive Map</span>
+                </div>
+                <div className="rounded-lg overflow-hidden border border-border/30">
+                  <iframe
+                    src={`https://www.openstreetmap.org/export/embed.html?bbox=${result.location.longitude - 0.01},${result.location.latitude - 0.01},${result.location.longitude + 0.01},${result.location.latitude + 0.01}&layer=mapnik&marker=${result.location.latitude},${result.location.longitude}`}
+                    style={{ border: 0, width: '100%', height: '350px' }}
+                    loading="lazy"
+                    title="Location Map"
+                  />
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Data Leaks */}
+          {result.dataLeaks?.length > 0 && (
+            <Card className="border-red-600/50 bg-red-600/10">
+              <CardContent className="p-4">
+                <div className="flex items-center gap-2 mb-3">
+                  <ShieldAlert className="w-5 h-5 text-red-400" />
+                  <span className="text-sm font-bold text-red-400">DATA LEAKS DETECTED: {result.dataLeaks.length}</span>
+                </div>
+                <div className="space-y-2">
+                  {result.dataLeaks.map((leak, i) => (
+                    <div key={i} className="p-2 rounded-lg border border-red-500/30 bg-red-500/5">
+                      <div className="flex items-center gap-2"><SeverityBadge severity={leak.severity} /><span className="text-sm font-medium">{leak.type}</span></div>
+                      <p className="text-xs text-muted-foreground mt-1">{leak.description}</p>
+                      {leak.url && <a href={leak.url} target="_blank" rel="noopener noreferrer" className="text-[10px] text-red-400 hover:underline flex items-center gap-1 mt-1"><ExternalLink className="w-2 h-2" />{leak.source}</a>}
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Tabs */}
+          <Tabs defaultValue="public">
+            <TabsList className="bg-card/50 flex-wrap">
+              <TabsTrigger value="public" className="data-[state=active]:bg-teal-500/20 data-[state=active]:text-teal-400"><FileSearch className="w-3 h-3 mr-1" /> Public Records ({result.publicRecords?.length || 0})</TabsTrigger>
+              <TabsTrigger value="leaks" className="data-[state=active]:bg-red-500/20 data-[state=active]:text-red-400"><AlertTriangle className="w-3 h-3 mr-1" /> Data Leaks ({result.dataLeaks?.length || 0})</TabsTrigger>
+              <TabsTrigger value="ai" className="data-[state=active]:bg-emerald-500/20 data-[state=active]:text-emerald-400"><Brain className="w-3 h-3 mr-1" /> AI Analysis</TabsTrigger>
+            </TabsList>
+            <TabsContent value="public" className="mt-3">
+              <div className="space-y-2 max-h-96 overflow-y-auto">
+                {result.publicRecords?.map((r, i) => <ResultCard key={i} title={r.title} snippet={r.snippet} url={r.url} domain={r.domain} />)}
+                {(!result.publicRecords || result.publicRecords.length === 0) && <p className="text-sm text-muted-foreground text-center py-4">No public records found.</p>}
+              </div>
+            </TabsContent>
+            <TabsContent value="leaks" className="mt-3">
+              <div className="space-y-2 max-h-96 overflow-y-auto">
+                {result.dataLeaks?.map((leak, i) => (
+                  <motion.div key={i} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
+                    className="p-3 rounded-lg border border-red-500/30 bg-red-500/5">
+                    <div className="flex items-center gap-2 mb-1"><SeverityBadge severity={leak.severity} /><span className="text-sm font-medium">{leak.type}</span></div>
+                    <p className="text-xs text-muted-foreground">{leak.description}</p>
+                    {leak.url && <a href={leak.url} target="_blank" rel="noopener noreferrer" className="text-[10px] text-red-400 hover:underline flex items-center gap-1 mt-1"><ExternalLink className="w-2 h-2" />{leak.source}</a>}
+                  </motion.div>
+                ))}
+                {(!result.dataLeaks || result.dataLeaks.length === 0) && <p className="text-sm text-muted-foreground text-center py-4">No data leaks detected.</p>}
+              </div>
+            </TabsContent>
+            <TabsContent value="ai" className="mt-3"><AIAnalysisCard analysis={result.aiAnalysis || ''} isLoading={false} /></TabsContent>
+          </Tabs>
+
+          <AIAnalysisCard analysis={result.aiAnalysis || ''} isLoading={false} />
+        </motion.div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
 // AI Chat Module
 // ============================================================
 function AIChatModule() {
@@ -1286,6 +1721,8 @@ export default function OSINTApp() {
       case 'websearch': return <WebSearchModule />;
       case 'image': return <ImageModule />;
       case 'dns': return <DNSModule />;
+      case 'nik': return <NIKModule />;
+      case 'ktptrack': return <KTPTrackModule />;
       case 'aichat': return <AIChatModule />;
       default: return <DashboardModule />;
     }
