@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { safeWebSearch, safeAIAnalysis } from '@/lib/zai';
+import { safeWebSearch, safeAIAnalysis, sequentialWebSearch } from '@/lib/zai';
 
-// Indonesian and international carrier mapping
+// Indonesian carrier mapping
 const CARRIER_MAP: Record<string, string> = {
   '811': 'Telkomsel', '812': 'Telkomsel', '813': 'Telkomsel',
   '821': 'Telkomsel', '822': 'Telkomsel', '823': 'Telkomsel',
@@ -36,6 +36,8 @@ const MESSAGING_PLATFORMS = [
   { name: 'Gopay', icon: '💵', category: 'Finance', detectHint: 'gopay' },
   { name: 'BCA Mobile', icon: '🏦', category: 'Banking', detectHint: 'bca' },
   { name: 'Google', icon: '🔍', category: 'Tech', detectHint: 'google' },
+  { name: 'Truecaller', icon: '📱', category: 'Caller ID', detectHint: 'truecaller' },
+  { name: 'GetContact', icon: '📒', category: 'Contact', detectHint: 'getcontact' },
 ];
 
 export async function POST(request: NextRequest) {
@@ -49,102 +51,180 @@ export async function POST(request: NextRequest) {
     const countryInfo = detectCountry(cleaned);
     const carrierInfo = detectCarrier(cleaned, countryInfo.countryCode);
 
-    // Sequential searches to avoid rate limiting - comprehensive OSINT
-    const spamResults = await safeWebSearch(`"${phone}" spam scam fraud report robocall`, 8);
-    const socialResults = await safeWebSearch(`"${phone}" social media account profile facebook whatsapp telegram`, 8);
-    const leakResults = await safeWebSearch(`"${phone}" data breach leak KTP identitas personal data exposed`, 8);
-    const callerIdResults = await safeWebSearch(`"${phone}" caller ID owner name who is`, 8);
-    const serviceResults = await safeWebSearch(`"${phone}" registered account service app`, 8);
+    // Format phone number variants for better search coverage
+    const phoneVariants = getPhoneVariants(cleaned, countryInfo.countryCode);
 
-    // Detect which services the number is registered on based on search results
+    // Comprehensive OSINT searches with multiple phone formats
+    const [
+      spamResults,
+      callerIdResults,
+      getContactResults,
+      socialResults,
+      leakResults,
+      serviceResults,
+      truecallerResults,
+      nameSearchResults,
+    ] = await sequentialWebSearch([
+      { query: `"${phone}" spam scam fraud report robocall penipuan`, num: 8 },
+      { query: `"${phone}" caller ID owner name who is nama pemilik siapa`, num: 8 },
+      { query: `"${phone}" getcontact truecaller nama contact saved disimpan dengan nama`, num: 10 },
+      { query: `"${phone}" OR "${phoneVariants.local}" social media profile facebook whatsapp telegram instagram`, num: 8 },
+      { query: `"${phone}" data breach leak KTP identitas personal data exposed bocor`, num: 8 },
+      { query: `"${phone}" registered account service app terdaftar akun`, num: 8 },
+      { query: `truecaller "${phone}" OR "${phoneVariants.local}" name owner caller`, num: 8 },
+      { query: `"${phone}" OR "${phoneVariants.local}" nama orang person name contact`, num: 10 },
+    ], 1500);
+
+    // Parse all search results into uniform format
+    const parseResults = (results: unknown[]) => {
+      return results.map((r: unknown) => {
+        const result = r as Record<string, unknown>;
+        return {
+          url: (result.url as string) || '',
+          title: (result.title as string) || (result.name as string) || '',
+          snippet: (result.snippet as string) || '',
+          domain: result.url ? new URL(result.url as string).hostname.replace('www.', '') : (result.host_name as string) || '',
+        };
+      }).filter((r) => r.title || r.snippet);
+    };
+
+    const spamData = parseResults(spamResults);
+    const callerIdData = parseResults(callerIdResults);
+    const getContactData = parseResults(getContactResults);
+    const socialData = parseResults(socialResults);
+    const leakData = parseResults(leakResults);
+    const serviceData = parseResults(serviceResults);
+    const truecallerData = parseResults(truecallerResults);
+    const nameSearchData = parseResults(nameSearchResults);
+
+    // ====== GETCONTACT-STYLE NAME DISCOVERY ======
+    // Extract names that this phone number is saved under from search results
+    const allNameResults = [...getContactData, ...truecallerData, ...callerIdData, ...nameSearchData];
+    
+    // Use AI to extract names from search results
+    const nameExtractionPrompt = allNameResults.length > 0
+      ? await safeAIAnalysis(
+          `You are a phone number intelligence analyst. Your task is to extract ALL names, aliases, and contact labels that people use to save this phone number. Look at search results and extract any names associated with phone number "${phone}". 
+
+Return ONLY a JSON array of objects with this exact format, no other text:
+[{"name": "Person Name", "source": "Service/App name", "confidence": "high/medium/low"}]
+
+Extract names from any source: Truecaller, GetContact, Facebook, WhatsApp, Telegram, LinkedIn, etc. Include any name variation or alias found. If no names found, return empty array [].
+
+IMPORTANT: Return ONLY the JSON array, no markdown, no explanation.`,
+          `Phone number: ${phone}
+Search results:
+${allNameResults.map(r => `[${r.domain}] ${r.title}: ${r.snippet}`).join('\n')}`
+        )
+      : '[]';
+
+    // Parse extracted names
+    let contactNames: Array<{ name: string; source: string; confidence: string }> = [];
+    try {
+      const cleaned = nameExtractionPrompt.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+      contactNames = JSON.parse(cleaned);
+      if (!Array.isArray(contactNames)) contactNames = [];
+    } catch {
+      // Try to extract names manually from search results
+      contactNames = extractNamesFromResults(allNameResults, phone);
+    }
+
+    // ====== SERVICE REGISTRATION DETECTION ======
     const allSearchText = [
-      ...spamResults, ...socialResults, ...leakResults, ...callerIdResults, ...serviceResults,
-    ].map((r: Record<string, string>) => `${r.name ?? ''} ${r.snippet ?? ''}`.toLowerCase()).join(' ');
+      ...spamData, ...callerIdData, ...getContactData, ...socialData, ...leakData, ...serviceData, ...truecallerData, ...nameSearchData,
+    ].map((r) => `${r.title} ${r.snippet} ${r.domain}`.toLowerCase()).join(' ');
 
     const registeredServices = MESSAGING_PLATFORMS.map(platform => {
       const hints = [platform.detectHint, platform.name.toLowerCase()];
       const detected = hints.some(hint => allSearchText.includes(hint)) ||
-        serviceResults.some((r: Record<string, string>) =>
-          r.snippet?.toLowerCase().includes(platform.detectHint) ||
-          r.name?.toLowerCase().includes(platform.detectHint)
+        serviceData.some(r =>
+          r.snippet.toLowerCase().includes(platform.detectHint) ||
+          r.title.toLowerCase().includes(platform.detectHint) ||
+          r.domain.toLowerCase().includes(platform.detectHint)
+        ) ||
+        socialData.some(r =>
+          r.snippet.toLowerCase().includes(platform.detectHint) ||
+          r.domain.toLowerCase().includes(platform.detectHint)
         );
+
       return {
         ...platform,
         detected,
-        confidence: detected ? 'high' as const : 'unknown' as const,
+        confidence: detected ? 'high' : 'unknown',
       };
     });
 
-    // Determine safety status
-    const spamKeywords = ['spam', 'scam', 'fraud', 'robocall', 'fraudulent', 'dangerous', 'phishing', 'malicious'];
-    const hasSpamReports = spamResults.some((r: Record<string, string>) =>
-      spamKeywords.some(k => `${r.name ?? ''} ${r.snippet ?? ''}`.toLowerCase().includes(k))
+    // ====== SAFETY STATUS ======
+    const spamKeywords = ['spam', 'scam', 'fraud', 'robocall', 'fraudulent', 'dangerous', 'phishing', 'malicious', 'penipuan', 'penipu'];
+    const hasSpamReports = spamData.some(r =>
+      spamKeywords.some(k => `${r.title} ${r.snippet}`.toLowerCase().includes(k))
     );
-    const safetyStatus = hasSpamReports ? 'dangerous' : 'unknown';
+    const hasLeakReports = leakData.some(r => {
+      const text = `${r.title} ${r.snippet}`.toLowerCase();
+      return ['leak', 'breach', 'exposed', 'bocor', 'ktp', 'identitas', 'password'].some(k => text.includes(k));
+    });
 
-    // Extract associated people from search results
-    const associatedPeople = (callerIdResults as Array<Record<string, string>>)
-      .filter((r: Record<string, string>) => r.snippet && r.snippet.length > 10)
-      .slice(0, 5)
-      .map((r: Record<string, string>) => ({
-        name: r.name || 'Unknown',
-        source: r.host_name || 'Web',
-        snippet: r.snippet?.substring(0, 150) || '',
-        url: r.url || '',
+    let safetyStatus = 'safe';
+    if (hasSpamReports) safetyStatus = 'dangerous';
+    else if (hasLeakReports) safetyStatus = 'suspicious';
+
+    // ====== ASSOCIATED PEOPLE ======
+    const associatedPeople = [...callerIdData, ...socialData.slice(0, 3)]
+      .filter(r => r.snippet && r.snippet.length > 10)
+      .slice(0, 8)
+      .map(r => ({
+        name: r.title || 'Unknown',
+        source: r.domain || 'Web',
+        snippet: r.snippet.substring(0, 150),
+        url: r.url,
         confidence: 'medium' as const,
       }));
 
-    // Data leak detection
+    // ====== DATA LEAK DETECTION ======
     const leakKeywords = ['leak', 'breach', 'exposed', 'ktp', 'identitas', 'password', 'data bocor', 'hacked', 'compromised', 'dumped', 'paste'];
-    const dataLeaks = (leakResults as Array<Record<string, string>>)
-      .filter((r: Record<string, string>) =>
-        leakKeywords.some(k => `${r.name ?? ''} ${r.snippet ?? ''}`.toLowerCase().includes(k))
-      )
-      .map((r: Record<string, string>) => {
-        const text = `${r.name ?? ''} ${r.snippet ?? ''}`.toLowerCase();
+    const dataLeaks = leakData
+      .filter(r => leakKeywords.some(k => `${r.title} ${r.snippet}`.toLowerCase().includes(k)))
+      .map(r => {
+        const text = `${r.title} ${r.snippet}`.toLowerCase();
         let severity: 'critical' | 'high' | 'medium' | 'low' = 'medium';
         let type = 'Data Exposure';
         if (text.includes('ktp') || text.includes('identitas') || text.includes('identity')) { severity = 'critical'; type = 'Identity Document Leak'; }
         else if (text.includes('password') || text.includes('credential')) { severity = 'critical'; type = 'Credential Leak'; }
         else if (text.includes('breach')) { severity = 'high'; type = 'Data Breach'; }
         else if (text.includes('phone') || text.includes('mobile')) { severity = 'medium'; type = 'Phone Number Exposure'; }
-        return { type, severity, source: r.host_name || '', description: r.snippet?.substring(0, 200) || '', url: r.url || '' };
+        return { type, severity, source: r.domain, description: r.snippet.substring(0, 200), url: r.url };
       });
 
-    // Social accounts from search
-    const socialAccounts = (socialResults as Array<Record<string, string>>).map((r: Record<string, string>) => ({
-      title: r.name,
-      snippet: r.snippet,
-      url: r.url,
-      domain: r.host_name,
-    }));
-
-    // Spam reports
-    const spamReports = (spamResults as Array<Record<string, string>>).map((r: Record<string, string>) => ({
-      title: r.name,
-      snippet: r.snippet,
-      url: r.url,
-      domain: r.host_name,
-    }));
-
-    // Comprehensive AI analysis
+    // ====== COMPREHENSIVE AI ANALYSIS ======
     const allContext = [
-      ...(spamResults as Array<Record<string, string>>).slice(0, 3).map((r: Record<string, string>) => `[SPAM] ${r.name}: ${r.snippet}`),
-      ...(socialResults as Array<Record<string, string>>).slice(0, 3).map((r: Record<string, string>) => `[SOCIAL] ${r.name}: ${r.snippet}`),
-      ...(leakResults as Array<Record<string, string>>).slice(0, 3).map((r: Record<string, string>) => `[LEAK] ${r.name}: ${r.snippet}`),
-      ...(callerIdResults as Array<Record<string, string>>).slice(0, 3).map((r: Record<string, string>) => `[CALLER-ID] ${r.name}: ${r.snippet}`),
-      ...(serviceResults as Array<Record<string, string>>).slice(0, 3).map((r: Record<string, string>) => `[SERVICES] ${r.name}: ${r.snippet}`),
+      ...spamData.slice(0, 3).map(r => `[SPAM] ${r.title}: ${r.snippet}`),
+      ...callerIdData.slice(0, 3).map(r => `[CALLER-ID] ${r.title}: ${r.snippet}`),
+      ...getContactData.slice(0, 5).map(r => `[GETCONTACT] ${r.title}: ${r.snippet}`),
+      ...socialData.slice(0, 3).map(r => `[SOCIAL] ${r.title}: ${r.snippet}`),
+      ...leakData.slice(0, 3).map(r => `[LEAK] ${r.title}: ${r.snippet}`),
+      ...serviceData.slice(0, 3).map(r => `[SERVICES] ${r.title}: ${r.snippet}`),
+      ...truecallerData.slice(0, 3).map(r => `[TRUECALLER] ${r.title}: ${r.snippet}`),
+      ...nameSearchData.slice(0, 3).map(r => `[NAME-SEARCH] ${r.title}: ${r.snippet}`),
     ].join('\n\n');
+
+    const contactNamesSummary = contactNames.length > 0
+      ? `\n\nNames found for this number: ${contactNames.map(n => `"${n.name}" (from ${n.source})`).join(', ')}`
+      : '';
 
     const aiAnalysis = allContext.length > 0
       ? await safeAIAnalysis(
-          `You are an elite OSINT analyst specializing in phone number intelligence and digital identity investigation.
+          `You are an elite OSINT analyst specializing in phone number intelligence and digital identity investigation (like GetContact/Truecaller).
 Analyze the phone number data and provide a COMPREHENSIVE structured intelligence report with these sections:
 
 ## 🔒 SAFETY ASSESSMENT
 - Overall safety rating (SAFE / SUSPICIOUS / DANGEROUS)
 - Spam/scam reports found
 - Risk level explanation
+
+## 📒 GETCONTACT - NAMA DI KONTAK ORANG LAIN
+- List ALL names that this phone number is saved under in other people's contacts
+- Which apps/services show these names (GetContact, Truecaller, WhatsApp, etc.)
+- Name variations and aliases found
 
 ## 📱 REGISTERED SERVICES & APPS
 - Which platforms and services this phone number is likely registered on
@@ -162,27 +242,26 @@ Analyze the phone number data and provide a COMPREHENSIVE structured intelligenc
 ## 🚨 DATA LEAK & BREACH INTELLIGENCE
 - Any data breaches involving this number
 - Personal data exposure (KTP/ID, passwords, etc.)
-- Leak severity assessment
 - Compromised accounts
 
 ## 📍 CARRIER & LOCATION
 - Mobile carrier/provider
-- Geographic location
-- Number type (mobile/landline/VoIP)
-- Country and region
+- Geographic location hints
+- Number type
 
 ## 🔗 DIGITAL FOOTPRINT
 - Online presence linked to this number
 - Social media connections
-- Public profiles found
 
-## 🎯 RECOMMENDATIONS
-- Further investigation steps
-- Verification recommendations
-- Risk mitigation advice
+Be thorough. Include ALL names found. Use Indonesian context when relevant.`,
+          `Analyze phone number: ${phone}
+Number info: Country=${countryInfo.country}, Carrier=${carrierInfo.carrier}, Type=${carrierInfo.type}
+${contactNamesSummary}
 
-Be thorough and specific. Include all findings from the data. Use emojis for section headers.`,
-          `Analyze phone number: ${phone}\nNumber info: Country=${countryInfo.country}, Carrier=${carrierInfo.carrier}, Format=${countryInfo.format}\n\nIntelligence data:\n${allContext}\n\nProvide a complete phone number OSINT intelligence report.`
+Intelligence data:
+${allContext}
+
+Provide a complete phone number OSINT intelligence report. Focus especially on what names this number is saved under in contacts (GetContact style).`
         )
       : 'No intelligence data available for this phone number.';
 
@@ -201,19 +280,101 @@ Be thorough and specific. Include all findings from the data. Use emojis for sec
         digitCount: cleaned.length,
       },
       safetyStatus,
+      // GetContact-style feature
+      contactNames,
+      contactNameCount: contactNames.length,
+      // Registered services
       registeredServices,
       detectedServiceCount: registeredServices.filter(s => s.detected).length,
+      // Associated people
       associatedPeople,
+      // Data leaks
       dataLeaks,
       leakCount: dataLeaks.length,
-      socialAccounts,
-      spamReports,
+      // Search results
+      socialAccounts: socialData,
+      spamReports: spamData,
+      getContactResults: getContactData,
+      truecallerResults: truecallerData,
+      callerIdResults: callerIdData,
+      // AI Analysis
       aiAnalysis,
     });
+
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Unknown error';
     return NextResponse.json({ error: message }, { status: 500 });
   }
+}
+
+// Get phone number variants for better search coverage
+function getPhoneVariants(cleaned: string, countryCode: string): { local: string; international: string } {
+  if (countryCode === '+62' && cleaned.startsWith('62')) {
+    return {
+      local: '0' + cleaned.substring(2), // 62 812 3456 7890 → 0812 3456 7890
+      international: '+' + cleaned,
+    };
+  }
+  return {
+    local: cleaned,
+    international: '+' + cleaned,
+  };
+}
+
+// Fallback: manually extract names from search results
+function extractNamesFromResults(
+  results: Array<{ title: string; snippet: string; domain: string }>,
+  phone: string
+): Array<{ name: string; source: string; confidence: string }> {
+  const names: Array<{ name: string; source: string; confidence: string }> = [];
+  const phoneCleaned = phone.replace(/[\s\-\+\(\)]/g, '');
+
+  for (const r of results) {
+    const text = `${r.title} ${r.snippet}`;
+    // Skip if text is just the phone number itself
+    if (text.replace(/[\s\-\+\(\)]/g, '').includes(phoneCleaned)) {
+      // Look for name patterns near phone numbers
+      const escapedPhone = phoneCleaned.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const namePatterns = [
+        new RegExp(`(?:named?|nama|called?|saved\\s+as|known\\s+as|registered\\s+as)\\s+([A-Z][a-z]+(?:\\s+[A-Z][a-z]+){0,3})`, 'gi'),
+        new RegExp(`([A-Z][a-z]+(?:\\s+[A-Z][a-z]+){1,3})\\s*[-–—]\\s*${escapedPhone}`, 'g'),
+      ];
+
+      for (const pattern of namePatterns) {
+        const matches = text.matchAll(pattern);
+        for (const match of matches) {
+          if (match[1] && match[1].length > 2 && match[1].length < 50) {
+            const existingName = names.find(n => n.name.toLowerCase() === match[1].toLowerCase());
+            if (!existingName) {
+              names.push({
+                name: match[1].trim(),
+                source: r.domain || 'Web Search',
+                confidence: 'low',
+              });
+            }
+          }
+        }
+      }
+    }
+
+    // Extract from Truecaller/GetContact specific results
+    if (r.domain.toLowerCase().includes('truecaller') || r.domain.toLowerCase().includes('getcontact')) {
+      // Usually the title contains the name
+      const titleName = r.title.replace(/[-|–].*/g, '').trim();
+      if (titleName.length > 2 && titleName.length < 50 && !titleName.match(/^\+?\d/)) {
+        const existingName = names.find(n => n.name.toLowerCase() === titleName.toLowerCase());
+        if (!existingName) {
+          names.push({
+            name: titleName,
+            source: r.domain,
+            confidence: 'high',
+          });
+        }
+      }
+    }
+  }
+
+  return names.slice(0, 15);
 }
 
 function detectCountry(cleaned: string): { countryCode: string; country: string; format: string } {
@@ -242,9 +403,7 @@ function detectCountry(cleaned: string): { countryCode: string; country: string;
 
 function detectCarrier(cleaned: string, countryCode: string): { carrier: string; type: string } {
   if (countryCode === '+62') {
-    // Indonesian carrier detection from number prefix
-    // After country code 62, next digits start with 8
-    const afterCountryCode = cleaned.substring(2); // remove 62
+    const afterCountryCode = cleaned.substring(2);
     if (afterCountryCode.startsWith('8') && afterCountryCode.length >= 3) {
       const prefix = afterCountryCode.substring(0, 3);
       for (const [key, value] of Object.entries(CARRIER_MAP)) {

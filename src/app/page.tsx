@@ -735,7 +735,8 @@ function DomainModule() {
 interface PhoneRegisteredService { name: string; icon: string; category: string; detectHint: string; detected: boolean; confidence: string; }
 interface PhoneAssociatedPerson { name: string; source: string; snippet: string; url: string; confidence: string; }
 interface PhoneDataLeak { type: string; severity: string; source: string; description: string; url: string; }
-interface PhoneResult { phone: string; analysis: { original: string; cleaned: string; countryCode: string; country: string; format: string; carrier: string; numberType: string; digitCount: number }; safetyStatus: string; registeredServices: PhoneRegisteredService[]; detectedServiceCount: number; associatedPeople: PhoneAssociatedPerson[]; dataLeaks: PhoneDataLeak[]; leakCount: number; socialAccounts: Array<{ title: string; snippet: string; url: string; domain: string }>; spamReports: Array<{ title: string; snippet: string; url: string; domain: string }>; aiAnalysis: string; }
+interface PhoneContactName { name: string; source: string; confidence: string; }
+interface PhoneResult { phone: string; analysis: { original: string; cleaned: string; countryCode: string; country: string; format: string; carrier: string; numberType: string; digitCount: number }; safetyStatus: string; contactNames: PhoneContactName[]; contactNameCount: number; registeredServices: PhoneRegisteredService[]; detectedServiceCount: number; associatedPeople: PhoneAssociatedPerson[]; dataLeaks: PhoneDataLeak[]; leakCount: number; socialAccounts: Array<{ title: string; snippet: string; url: string; domain: string }>; spamReports: Array<{ title: string; snippet: string; url: string; domain: string }>; getContactResults: Array<{ title: string; snippet: string; url: string; domain: string }>; truecallerResults: Array<{ title: string; snippet: string; url: string; domain: string }>; callerIdResults: Array<{ title: string; snippet: string; url: string; domain: string }>; aiAnalysis: string; }
 
 function PhoneModule() {
   const [phone, setPhone] = useState('');
@@ -754,31 +755,43 @@ function PhoneModule() {
     finally { setLoading(false); }
   }, [phone]);
 
+  const getConfidenceColor = (c: string) => {
+    if (c === 'high') return 'text-emerald-400';
+    if (c === 'medium') return 'text-amber-400';
+    return 'text-gray-400';
+  };
+
+  const getConfidenceBg = (c: string) => {
+    if (c === 'high') return 'border-emerald-500/40 bg-emerald-500/10';
+    if (c === 'medium') return 'border-amber-500/40 bg-amber-500/10';
+    return 'border-gray-500/30 bg-gray-500/10';
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-3 mb-2">
         <div className="p-2 rounded-lg bg-pink-500/20 border border-pink-500/30"><Phone className="w-5 h-5 text-pink-400" /></div>
-        <div><h2 className="text-xl font-bold">Phone Trace</h2><p className="text-sm text-muted-foreground">Safety status, registered services & data leak intelligence</p></div>
+        <div><h2 className="text-xl font-bold">Phone Trace</h2><p className="text-sm text-muted-foreground">GetContact, safety, registered services & data leak intelligence</p></div>
       </div>
 
       <div className="flex gap-3">
         <div className="relative flex-1">
           <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input placeholder="Enter phone number (e.g., +6281234567890)..." value={phone} onChange={(e) => setPhone(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && search()} className="pl-10 bg-card/50 border-border/50" />
+          <Input placeholder="Enter phone number (e.g., 6286876757575)..." value={phone} onChange={(e) => setPhone(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && search()} className="pl-10 bg-card/50 border-border/50" />
         </div>
         <Button onClick={search} disabled={loading} className="bg-pink-600 hover:bg-pink-700 text-white min-w-[100px]">
           {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4 mr-2" />}{loading ? 'Tracing' : 'Trace'}
         </Button>
       </div>
 
-      {loading && <LoadingIndicator message="Tracing phone number and analyzing carrier data..." />}
+      {loading && <LoadingIndicator message="Tracing phone number — scanning contacts, services, leaks..." />}
       {error && <ErrorCard error={error} />}
       {result && (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
-          {/* 1. Safety Status Badge - BIG prominent */}
+          {/* 1. Safety Status Badge */}
           <div className="flex items-center gap-4">
             <SafetyStatusBadge status={result.safetyStatus} />
-            <span className="text-sm text-muted-foreground">Safety assessment for <span className="font-mono text-foreground">{result.phone}</span></span>
+            <span className="text-sm text-muted-foreground">Safety for <span className="font-mono text-foreground">{result.phone}</span></span>
           </div>
 
           {/* 2. Phone Analysis Card */}
@@ -798,12 +811,71 @@ function PhoneModule() {
             </Card>
           )}
 
-          {/* 3. Registered Services Grid */}
+          {/* 3. GETCONTACT - Nama di Kontak Orang Lain ★★★ */}
+          <Card className="border-cyan-500/40 bg-cyan-500/5">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium flex items-center gap-2 text-cyan-400">
+                <Users className="w-4 h-4" /> 📒 GetContact — Nama di Kontak Orang Lain
+                <Badge className="bg-cyan-500/20 text-cyan-400 border-cyan-500/30 ml-2">{result.contactNameCount} names found</Badge>
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {result.contactNames && result.contactNames.length > 0 ? (
+                <div className="space-y-2 max-h-80 overflow-y-auto">
+                  {result.contactNames.map((cn, i) => (
+                    <motion.div key={i} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.05 }}
+                      className={`flex items-center justify-between p-3 rounded-lg border ${getConfidenceBg(cn.confidence)}`}>
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-full bg-cyan-500/20 flex items-center justify-center text-cyan-400 text-sm font-bold">
+                          {cn.name.charAt(0).toUpperCase()}
+                        </div>
+                        <div>
+                          <div className="text-sm font-semibold">{cn.name}</div>
+                          <div className="text-[10px] text-muted-foreground flex items-center gap-1">
+                            <span>Disimpan di:</span>
+                            <Badge variant="outline" className="text-[9px] px-1.5 py-0">{cn.source}</Badge>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Badge className={`text-[9px] ${cn.confidence === 'high' ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' : cn.confidence === 'medium' ? 'bg-amber-500/20 text-amber-400 border-amber-500/30' : 'bg-gray-500/20 text-gray-400 border-gray-500/30'}`}>
+                          {cn.confidence === 'high' ? '✓ Confirmed' : cn.confidence === 'medium' ? '~ Likely' : '? Unverified'}
+                        </Badge>
+                      </div>
+                    </motion.div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-6">
+                  <Users className="w-10 h-10 text-muted-foreground/30 mx-auto mb-2" />
+                  <p className="text-sm text-muted-foreground">No contact names found for this number</p>
+                  <p className="text-xs text-muted-foreground mt-1">Try Truecaller or GetContact for more results</p>
+                </div>
+              )}
+              {/* Quick info */}
+              {result.contactNames && result.contactNames.length > 0 && (
+                <div className="mt-3 p-3 rounded-lg border border-cyan-500/20 bg-cyan-500/5">
+                  <div className="text-xs text-muted-foreground mb-1">📋 Summary</div>
+                  <div className="text-sm font-medium text-cyan-400">
+                    Nomor ini disimpan dengan {result.contactNames.length} nama berbeda di kontak orang lain
+                  </div>
+                  <div className="flex flex-wrap gap-1.5 mt-2">
+                    {result.contactNames.slice(0, 8).map((cn, i) => (
+                      <Badge key={i} variant="outline" className="text-[10px] border-cyan-500/30 text-cyan-300">{cn.name}</Badge>
+                    ))}
+                    {result.contactNames.length > 8 && <Badge variant="outline" className="text-[10px] border-cyan-500/30 text-cyan-300">+{result.contactNames.length - 8} more</Badge>}
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* 4. Registered Services Grid */}
           {result.registeredServices && result.registeredServices.length > 0 && (
             <Card className="border-border/50 bg-card/30">
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm font-medium flex items-center gap-2 text-pink-400">
-                  <Wifi className="w-4 h-4" /> Registered Services
+                  <Wifi className="w-4 h-4" /> Terdaftar di Service/Aplikasi
                   <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30 ml-2">{result.detectedServiceCount}/{result.registeredServices.length} detected</Badge>
                 </CardTitle>
               </CardHeader>
@@ -815,7 +887,7 @@ function PhoneModule() {
                       <div className="text-xs font-medium mt-1">{svc.name}</div>
                       <div className="text-[9px] text-muted-foreground">{svc.category}</div>
                       {svc.detected ? (
-                        <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30 text-[9px] mt-1"><CheckCircle2 className="w-2 h-2 mr-0.5" />Detected</Badge>
+                        <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30 text-[9px] mt-1"><CheckCircle2 className="w-2 h-2 mr-0.5" />Terdaftar</Badge>
                       ) : (
                         <Badge className="bg-gray-500/10 text-gray-500 border-gray-500/20 text-[9px] mt-1">Unknown</Badge>
                       )}
@@ -826,13 +898,13 @@ function PhoneModule() {
             </Card>
           )}
 
-          {/* 5. Data Leak Section - CRITICAL */}
+          {/* 5. Data Leak Section */}
           {result.leakCount > 0 && (
             <Card className="border-red-600/50 bg-red-600/10">
               <CardContent className="p-4">
                 <div className="flex items-center gap-2 mb-3">
                   <ShieldAlert className="w-6 h-6 text-red-400" />
-                  <span className="text-base font-bold text-red-400">DATA LEAKS DETECTED: {result.leakCount}</span>
+                  <span className="text-base font-bold text-red-400">🚨 DATA BOCOR DETECTED: {result.leakCount}</span>
                 </div>
                 <div className="space-y-2">
                   {result.dataLeaks.map((leak, i) => (
@@ -851,11 +923,11 @@ function PhoneModule() {
             </Card>
           )}
 
-          {/* 4. Associated People Section */}
+          {/* 6. Associated People Section */}
           {result.associatedPeople && result.associatedPeople.length > 0 && (
             <Card className="border-border/50 bg-card/30">
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium flex items-center gap-2 text-cyan-400"><Users className="w-4 h-4" /> Associated People ({result.associatedPeople.length})</CardTitle>
+                <CardTitle className="text-sm font-medium flex items-center gap-2 text-amber-400"><Users className="w-4 h-4" /> Orang Terkait ({result.associatedPeople.length})</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="space-y-2 max-h-64 overflow-y-auto">
@@ -880,13 +952,19 @@ function PhoneModule() {
             </Card>
           )}
 
-          {/* Tabs for Social Accounts, Spam Reports, AI Analysis */}
-          <Tabs defaultValue="social">
+          {/* 7. Tabs for detailed results */}
+          <Tabs defaultValue="getcontact">
             <TabsList className="bg-card/50 flex-wrap">
-              <TabsTrigger value="social" className="data-[state=active]:bg-cyan-500/20 data-[state=active]:text-cyan-400"><User className="w-3 h-3 mr-1" /> Social ({result.socialAccounts?.length || 0})</TabsTrigger>
+              <TabsTrigger value="getcontact" className="data-[state=active]:bg-cyan-500/20 data-[state=active]:text-cyan-400"><Users className="w-3 h-3 mr-1" /> GetContact ({result.getContactResults?.length || 0})</TabsTrigger>
+              <TabsTrigger value="truecaller" className="data-[state=active]:bg-emerald-500/20 data-[state=active]:text-emerald-400"><Phone className="w-3 h-3 mr-1" /> Truecaller ({result.truecallerResults?.length || 0})</TabsTrigger>
+              <TabsTrigger value="callerid" className="data-[state=active]:bg-amber-500/20 data-[state=active]:text-amber-400"><Radar className="w-3 h-3 mr-1" /> Caller ID ({result.callerIdResults?.length || 0})</TabsTrigger>
+              <TabsTrigger value="social" className="data-[state=active]:bg-violet-500/20 data-[state=active]:text-violet-400"><User className="w-3 h-3 mr-1" /> Social ({result.socialAccounts?.length || 0})</TabsTrigger>
               <TabsTrigger value="spam" className="data-[state=active]:bg-red-500/20 data-[state=active]:text-red-400"><AlertTriangle className="w-3 h-3 mr-1" /> Spam ({result.spamReports?.length || 0})</TabsTrigger>
-              <TabsTrigger value="ai" className="data-[state=active]:bg-emerald-500/20 data-[state=active]:text-emerald-400"><Brain className="w-3 h-3 mr-1" /> AI Analysis</TabsTrigger>
+              <TabsTrigger value="ai" className="data-[state=active]:bg-pink-500/20 data-[state=active]:text-pink-400"><Brain className="w-3 h-3 mr-1" /> AI</TabsTrigger>
             </TabsList>
+            <TabsContent value="getcontact" className="mt-3"><div className="space-y-2 max-h-96 overflow-y-auto">{result.getContactResults?.map((r, i) => <ResultCard key={i} {...r} />)}</div></TabsContent>
+            <TabsContent value="truecaller" className="mt-3"><div className="space-y-2 max-h-96 overflow-y-auto">{result.truecallerResults?.map((r, i) => <ResultCard key={i} {...r} />)}</div></TabsContent>
+            <TabsContent value="callerid" className="mt-3"><div className="space-y-2 max-h-96 overflow-y-auto">{result.callerIdResults?.map((r, i) => <ResultCard key={i} {...r} />)}</div></TabsContent>
             <TabsContent value="social" className="mt-3"><div className="space-y-2 max-h-96 overflow-y-auto">{result.socialAccounts?.map((r, i) => <ResultCard key={i} {...r} />)}</div></TabsContent>
             <TabsContent value="spam" className="mt-3"><div className="space-y-2 max-h-96 overflow-y-auto">{result.spamReports?.map((r, i) => <ResultCard key={i} {...r} />)}</div></TabsContent>
             <TabsContent value="ai" className="mt-3"><AIAnalysisCard analysis={result.aiAnalysis || ''} isLoading={false} /></TabsContent>
