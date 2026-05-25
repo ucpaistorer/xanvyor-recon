@@ -32,9 +32,9 @@ export async function POST(request: NextRequest) {
         const result = r as Record<string, unknown>;
         return {
           url: (result.url as string) || '',
-          title: (result.title as string) || '',
+          title: (result.title as string) || (result.name as string) || '',
           snippet: (result.snippet as string) || '',
-          domain: result.url ? new URL(result.url as string).hostname.replace('www.', '') : '',
+          domain: result.url ? new URL(result.url as string).hostname.replace('www.', '') : (result.host_name as string) || '',
         };
       }).filter((r) => r.title || r.snippet);
     };

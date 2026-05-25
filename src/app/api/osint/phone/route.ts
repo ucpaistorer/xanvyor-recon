@@ -55,6 +55,12 @@ export async function POST(request: NextRequest) {
     const phoneVariants = getPhoneVariants(cleaned, countryInfo.countryCode);
 
     // Comprehensive OSINT searches with multiple phone formats
+    // Search for the phone number in various formats for better coverage
+    const phoneLocal = phoneVariants.local;
+    const phoneFormatted = countryInfo.countryCode === '+62'
+      ? `${phoneLocal.substring(0, 3)}-${phoneLocal.substring(3, 7)}-${phoneLocal.substring(7)}`
+      : phone;
+
     const [
       spamResults,
       callerIdResults,
@@ -64,15 +70,17 @@ export async function POST(request: NextRequest) {
       serviceResults,
       truecallerResults,
       nameSearchResults,
+      webDirectoryResults,
     ] = await sequentialWebSearch([
       { query: `"${phone}" spam scam fraud report robocall penipuan`, num: 8 },
-      { query: `"${phone}" caller ID owner name who is nama pemilik siapa`, num: 8 },
-      { query: `"${phone}" getcontact truecaller nama contact saved disimpan dengan nama`, num: 10 },
-      { query: `"${phone}" OR "${phoneVariants.local}" social media profile facebook whatsapp telegram instagram`, num: 8 },
+      { query: `"${phone}" OR "${phoneLocal}" caller ID owner name who is nama pemilik siapa`, num: 8 },
+      { query: `site:truecaller.com "${phone}" OR "${phoneLocal}"`, num: 8 },
+      { query: `"${phone}" OR "${phoneLocal}" OR "${phoneFormatted}" social media profile facebook whatsapp telegram instagram`, num: 8 },
       { query: `"${phone}" data breach leak KTP identitas personal data exposed bocor`, num: 8 },
-      { query: `"${phone}" registered account service app terdaftar akun`, num: 8 },
-      { query: `truecaller "${phone}" OR "${phoneVariants.local}" name owner caller`, num: 8 },
-      { query: `"${phone}" OR "${phoneVariants.local}" nama orang person name contact`, num: 10 },
+      { query: `"${phone}" OR "${phoneLocal}" registered account service app terdaftar akun`, num: 8 },
+      { query: `truecaller.com "${phone}" OR "${phoneLocal}" name owner caller`, num: 8 },
+      { query: `"${phone}" OR "${phoneLocal}" OR "${phoneFormatted}" nama orang person name contact pemilik disimpan`, num: 10 },
+      { query: `"${phone}" OR "${phoneLocal}" kontak telepon nomor hp nama orang directory`, num: 8 },
     ], 1500);
 
     // Parse all search results into uniform format
@@ -96,24 +104,45 @@ export async function POST(request: NextRequest) {
     const serviceData = parseResults(serviceResults);
     const truecallerData = parseResults(truecallerResults);
     const nameSearchData = parseResults(nameSearchResults);
+    const webDirectoryData = parseResults(webDirectoryResults);
 
     // ====== GETCONTACT-STYLE NAME DISCOVERY ======
     // Extract names that this phone number is saved under from search results
-    const allNameResults = [...getContactData, ...truecallerData, ...callerIdData, ...nameSearchData];
+    const allNameResults = [...getContactData, ...truecallerData, ...callerIdData, ...nameSearchData, ...webDirectoryData];
     
     // Use AI to extract names from search results
     const nameExtractionPrompt = allNameResults.length > 0
       ? await safeAIAnalysis(
-          `You are a phone number intelligence analyst. Your task is to extract ALL names, aliases, and contact labels that people use to save this phone number. Look at search results and extract any names associated with phone number "${phone}". 
+          `You are a phone number intelligence analyst specializing in Indonesian phone number lookup (like GetContact/Truecaller). Your task is to find ALL names, aliases, and contact labels associated with phone number "${phone}".
+
+CRITICAL: Read every search result carefully. Look for:
+1. Any PERSON NAME mentioned near the phone number
+2. Names from Truecaller lookup results
+3. Names from GetContact results  
+4. Names from social media profiles linked to this number
+5. Any business names or organization names associated with this number
+6. Names from web directories, forums, or classified ads mentioning this number
+7. Any Indonesian names (like "Asep", "Budi", "Siti", etc.) mentioned alongside this number
+8. Names from WhatsApp/Telegram group member lists
+9. Any "saved as" or "disimpan dengan nama" patterns
 
 Return ONLY a JSON array of objects with this exact format, no other text:
-[{"name": "Person Name", "source": "Service/App name", "confidence": "high/medium/low"}]
+[{"name": "Person Name", "source": "Service/App name where found", "confidence": "high/medium/low"}]
 
-Extract names from any source: Truecaller, GetContact, Facebook, WhatsApp, Telegram, LinkedIn, etc. Include any name variation or alias found. If no names found, return empty array [].
+Rules:
+- Extract ANY name found near or associated with the phone number
+- Include name variations and aliases
+- If a name appears in the title or snippet alongside the number, include it
+- Indonesian names are very common - look for patterns like capitalized words near the phone number
+- If no specific names are found, return empty array []
+- confidence "high" = name clearly linked to this number, "medium" = likely linked, "low" = possibly linked
 
 IMPORTANT: Return ONLY the JSON array, no markdown, no explanation.`,
           `Phone number: ${phone}
-Search results:
+Local format: ${phoneLocal}
+Formatted: ${phoneFormatted}
+
+Search results (analyze each one carefully for names):
 ${allNameResults.map(r => `[${r.domain}] ${r.title}: ${r.snippet}`).join('\n')}`
         )
       : '[]';
@@ -131,7 +160,7 @@ ${allNameResults.map(r => `[${r.domain}] ${r.title}: ${r.snippet}`).join('\n')}`
 
     // ====== SERVICE REGISTRATION DETECTION ======
     const allSearchText = [
-      ...spamData, ...callerIdData, ...getContactData, ...socialData, ...leakData, ...serviceData, ...truecallerData, ...nameSearchData,
+      ...spamData, ...callerIdData, ...getContactData, ...socialData, ...leakData, ...serviceData, ...truecallerData, ...nameSearchData, ...webDirectoryData,
     ].map((r) => `${r.title} ${r.snippet} ${r.domain}`.toLowerCase()).join(' ');
 
     const registeredServices = MESSAGING_PLATFORMS.map(platform => {
@@ -205,6 +234,7 @@ ${allNameResults.map(r => `[${r.domain}] ${r.title}: ${r.snippet}`).join('\n')}`
       ...serviceData.slice(0, 3).map(r => `[SERVICES] ${r.title}: ${r.snippet}`),
       ...truecallerData.slice(0, 3).map(r => `[TRUECALLER] ${r.title}: ${r.snippet}`),
       ...nameSearchData.slice(0, 3).map(r => `[NAME-SEARCH] ${r.title}: ${r.snippet}`),
+      ...webDirectoryData.slice(0, 3).map(r => `[DIRECTORY] ${r.title}: ${r.snippet}`),
     ].join('\n\n');
 
     const contactNamesSummary = contactNames.length > 0
