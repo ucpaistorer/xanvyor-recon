@@ -3,9 +3,10 @@ import { getZAI, safeWebSearch } from '@/lib/zai';
 
 export async function POST(request: NextRequest) {
   try {
-    const { imageUrl, prompt } = await request.json();
-    if (!imageUrl) {
-      return NextResponse.json({ error: 'Image URL is required' }, { status: 400 });
+    const { imageUrl, imageBase64, prompt } = await request.json();
+    const effectiveImageUrl = imageBase64 || imageUrl;
+    if (!effectiveImageUrl) {
+      return NextResponse.json({ error: 'Image is required (upload a file or provide URL)' }, { status: 400 });
     }
 
     const zai = await getZAI();
@@ -30,7 +31,7 @@ Provide a structured OSINT analysis report.`;
             role: 'user',
             content: [
               { type: 'text', text: analysisPrompt },
-              { type: 'image_url', image_url: { url: imageUrl } },
+              { type: 'image_url', image_url: { url: effectiveImageUrl } },
             ],
           },
         ],
@@ -61,7 +62,7 @@ Provide a structured OSINT analysis report.`;
 
     return NextResponse.json({
       success: true,
-      imageUrl,
+      imageUrl: effectiveImageUrl,
       analysis,
       relatedIntel,
     });

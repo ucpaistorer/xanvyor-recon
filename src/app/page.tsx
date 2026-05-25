@@ -27,7 +27,7 @@ import ReactMarkdown from 'react-markdown';
 // ============================================================
 // Types
 // ============================================================
-type ModuleType = 'dashboard' | 'username' | 'email' | 'ip' | 'domain' | 'phone' | 'websearch' | 'image' | 'aichat' | 'dns' | 'nik' | 'ktptrack' | 'websec' | 'webvuln';
+type ModuleType = 'dashboard' | 'username' | 'email' | 'ip' | 'domain' | 'phone' | 'websearch' | 'image' | 'aichat' | 'dns' | 'nik' | 'ktptrack' | 'websec' | 'webvuln' | 'mac' | 'bitcoin' | 'vehicle';
 
 interface Module {
   id: ModuleType;
@@ -51,6 +51,9 @@ const MODULES: Module[] = [
   { id: 'ktptrack', name: 'KTP Tracker', icon: <MapPin className="w-4 h-4" />, description: 'KTP photo & location', color: 'from-teal-500 to-cyan-500' },
   { id: 'websec', name: 'Web Security', icon: <ShieldCheck className="w-4 h-4" />, description: 'Website security audit', color: 'from-emerald-500 to-green-600' },
   { id: 'webvuln', name: 'Web Vuln Scan', icon: <Bug className="w-4 h-4" />, description: 'Vulnerability scanner', color: 'from-red-500 to-orange-500' },
+  { id: 'mac', name: 'MAC Lookup', icon: <Wifi className="w-4 h-4" />, description: 'MAC address intelligence', color: 'from-yellow-500 to-amber-500' },
+  { id: 'bitcoin', name: 'Bitcoin Intel', icon: <Zap className="w-4 h-4" />, description: 'Crypto address analysis', color: 'from-orange-500 to-yellow-500' },
+  { id: 'vehicle', name: 'Vehicle Check', icon: <Target className="w-4 h-4" />, description: 'Indonesian plate lookup', color: 'from-lime-500 to-green-500' },
   { id: 'aichat', name: 'RECON-AI', icon: <Brain className="w-4 h-4" />, description: 'OSINT AI assistant', color: 'from-fuchsia-500 to-pink-500' },
 ];
 
@@ -196,7 +199,7 @@ function ResultCard({ title, snippet, url, date, domain }: { title: string; snip
 // ============================================================
 function DashboardModule() {
   const stats = [
-    { label: 'Tools Available', value: '14+', icon: <Layers className="w-5 h-5" />, color: 'text-emerald-400' },
+    { label: 'Tools Available', value: '17+', icon: <Layers className="w-5 h-5" />, color: 'text-emerald-400' },
     { label: 'AI Engines', value: '4', icon: <Cpu className="w-5 h-5" />, color: 'text-cyan-400' },
     { label: 'Data Sources', value: '100+', icon: <Database className="w-5 h-5" />, color: 'text-amber-400' },
     { label: 'Real-time', value: 'Yes', icon: <Activity className="w-5 h-5" />, color: 'text-rose-400' },
@@ -216,6 +219,9 @@ function DashboardModule() {
     { icon: <Brain className="w-5 h-5" />, title: 'RECON-AI Assistant', desc: 'Conversational OSINT AI for analysis guidance and intelligence synthesis' },
     { icon: <ShieldCheck className="w-5 h-5" />, title: 'Web Security Audit', desc: 'SSL/TLS check, security headers analysis, cookie security, malware & blacklist detection' },
     { icon: <Bug className="w-5 h-5" />, title: 'Web Vulnerability Scanner', desc: 'SQL injection, XSS, CSRF, directory traversal, CVE scan, and exposed endpoint detection' },
+    { icon: <Wifi className="w-5 h-5" />, title: 'MAC Address Intelligence', desc: 'Device manufacturer lookup, OUI analysis, and network device identification' },
+    { icon: <Zap className="w-5 h-5" />, title: 'Bitcoin Intelligence', desc: 'Cryptocurrency address analysis, transaction tracking, and risk assessment' },
+    { icon: <Target className="w-5 h-5" />, title: 'Vehicle Plate Check', desc: 'Indonesian vehicle registration lookup, region decoding, and crime check' },
     { icon: <Radar className="w-5 h-5" />, title: 'Threat Intelligence', desc: 'Real-time threat assessment powered by AI across all modules' },
   ];
 
@@ -1034,37 +1040,124 @@ function WebSearchModule() {
 // Image Forensics Module
 // ============================================================
 function ImageModule() {
-  const [imageUrl, setImageUrl] = useState('');
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [imageBase64, setImageBase64] = useState<string | null>(null);
+  const [fileName, setFileName] = useState<string>('');
   const [prompt, setPrompt] = useState('');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<Record<string, unknown> | null>(null);
   const [error, setError] = useState('');
+  const [dragOver, setDragOver] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleFile = useCallback((file: File) => {
+    if (!file.type.startsWith('image/')) {
+      setError('Please upload an image file (JPEG, PNG, WebP, etc.)');
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      setError('File size must be less than 10MB');
+      return;
+    }
+    setFileName(file.name);
+    setError('');
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const dataUrl = e.target?.result as string;
+      setImagePreview(dataUrl);
+      setImageBase64(dataUrl);
+    };
+    reader.readAsDataURL(file);
+  }, []);
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(false);
+    const file = e.dataTransfer.files[0];
+    if (file) handleFile(file);
+  }, [handleFile]);
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(true);
+  }, []);
+
+  const handleDragLeave = useCallback(() => {
+    setDragOver(false);
+  }, []);
 
   const analyze = useCallback(async () => {
-    if (!imageUrl.trim()) return;
+    if (!imageBase64) return;
     setLoading(true); setResult(null); setError('');
     try {
-      const res = await fetch('/api/osint/image-analysis', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ imageUrl: imageUrl.trim(), prompt: prompt.trim() || undefined }) });
+      const res = await fetch('/api/osint/image-analysis', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ imageBase64, prompt: prompt.trim() || undefined }),
+      });
       const data = await res.json();
       if (data.error) { setError(data.error); } else { setResult(data); }
     } catch { setError('Network error. Please check your connection and try again.'); }
     finally { setLoading(false); }
-  }, [imageUrl, prompt]);
+  }, [imageBase64, prompt]);
+
+  const clearImage = useCallback(() => {
+    setImagePreview(null);
+    setImageBase64(null);
+    setFileName('');
+    setResult(null);
+    setError('');
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  }, []);
 
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-3 mb-2">
         <div className="p-2 rounded-lg bg-sky-500/20 border border-sky-500/30"><ImageIcon className="w-5 h-5 text-sky-400" /></div>
-        <div><h2 className="text-xl font-bold">Image Forensics</h2><p className="text-sm text-muted-foreground">VLM-powered visual intelligence analysis</p></div>
+        <div><h2 className="text-xl font-bold">Image Forensics</h2><p className="text-sm text-muted-foreground">Upload image for VLM-powered visual intelligence</p></div>
       </div>
 
       <div className="space-y-3">
-        <div className="relative">
-          <ImageIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input placeholder="Enter image URL to analyze..." value={imageUrl} onChange={(e) => setImageUrl(e.target.value)} className="pl-10 bg-card/50 border-border/50" />
-        </div>
+        {/* File Upload Area */}
+        {!imagePreview ? (
+          <div
+            onDrop={handleDrop}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onClick={() => fileInputRef.current?.click()}
+            className={`relative border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all ${
+              dragOver ? 'border-sky-400 bg-sky-500/10' : 'border-border/50 bg-card/20 hover:border-sky-500/50 hover:bg-card/40'
+            }`}
+          >
+            <Upload className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
+            <p className="text-sm font-medium mb-1">Drop image here or click to upload</p>
+            <p className="text-xs text-muted-foreground">Supports JPEG, PNG, WebP, GIF (max 10MB)</p>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); }}
+              className="hidden"
+            />
+          </div>
+        ) : (
+          <div className="space-y-2">
+            <div className="relative rounded-xl overflow-hidden border border-border/50 bg-card/30">
+              <img src={imagePreview} alt="Preview" className="max-h-64 mx-auto object-contain p-2" />
+              <button onClick={clearImage} className="absolute top-2 right-2 p-1.5 rounded-lg bg-black/60 hover:bg-black/80 text-white transition-colors">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <ImageIcon className="w-3 h-3" />
+              <span className="truncate">{fileName}</span>
+              <Badge variant="outline" className="text-[9px] ml-auto">Ready</Badge>
+            </div>
+          </div>
+        )}
+
         <Textarea placeholder="Custom analysis prompt (optional - leave empty for full OSINT analysis)..." value={prompt} onChange={(e) => setPrompt(e.target.value)} className="bg-card/50 border-border/50 min-h-[60px]" />
-        <Button onClick={analyze} disabled={loading} className="bg-sky-600 hover:bg-sky-700 text-white w-full">
+        <Button onClick={analyze} disabled={loading || !imageBase64} className="bg-sky-600 hover:bg-sky-700 text-white w-full">
           {loading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Eye className="w-4 h-4 mr-2" />}{loading ? 'Analyzing Image...' : 'Analyze Image'}
         </Button>
       </div>
@@ -1073,15 +1166,16 @@ function ImageModule() {
       {error && <ErrorCard error={error} />}
       {result && (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
-          {imageUrl && (
-            <div className="rounded-lg overflow-hidden border border-border/50 max-h-64">
-              <img src={imageUrl} alt="Analyzed" className="w-full object-contain" />
-            </div>
-          )}
           <Card className="border-sky-500/30 bg-sky-500/5">
             <CardHeader className="pb-2"><CardTitle className="text-sm font-medium flex items-center gap-2 text-sky-400"><Eye className="w-4 h-4" /> VLM OSINT Analysis</CardTitle></CardHeader>
             <CardContent className="prose prose-invert prose-sm max-w-none text-muted-foreground"><ReactMarkdown>{result.analysis as string || ''}</ReactMarkdown></CardContent>
           </Card>
+          {result.relatedIntel && (
+            <Card className="border-border/50 bg-card/30">
+              <CardHeader className="pb-2"><CardTitle className="text-sm font-medium flex items-center gap-2"><FileSearch className="w-4 h-4" /> Related Tools & Resources</CardTitle></CardHeader>
+              <CardContent><div className="space-y-2 max-h-48 overflow-y-auto">{(result.relatedIntel as Array<{url: string; title: string; snippet: string}>).map((r, i) => <ResultCard key={i} {...r} />)}</div></CardContent>
+            </Card>
+          )}
         </motion.div>
       )}
     </div>
@@ -1428,56 +1522,127 @@ interface KTPTrackResult {
 }
 
 function KTPTrackModule() {
-  const [imageUrl, setImageUrl] = useState('');
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [imageBase64, setImageBase64] = useState<string | null>(null);
+  const [fileName, setFileName] = useState<string>('');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<KTPTrackResult | null>(null);
   const [error, setError] = useState('');
+  const [dragOver, setDragOver] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleFile = useCallback((file: File) => {
+    if (!file.type.startsWith('image/')) {
+      setError('Please upload an image file (JPEG, PNG, WebP, etc.)');
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      setError('File size must be less than 10MB');
+      return;
+    }
+    setFileName(file.name);
+    setError('');
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const dataUrl = e.target?.result as string;
+      setImagePreview(dataUrl);
+      setImageBase64(dataUrl);
+    };
+    reader.readAsDataURL(file);
+  }, []);
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(false);
+    const file = e.dataTransfer.files[0];
+    if (file) handleFile(file);
+  }, [handleFile]);
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(true);
+  }, []);
+
+  const handleDragLeave = useCallback(() => {
+    setDragOver(false);
+  }, []);
 
   const search = useCallback(async () => {
-    if (!imageUrl.trim()) return;
+    if (!imageBase64) return;
     setLoading(true); setResult(null); setError('');
     try {
-      const res = await fetch('/api/osint/ktp-track', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ imageUrl: imageUrl.trim() }) });
+      const res = await fetch('/api/osint/ktp-track', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ imageBase64 }),
+      });
       const data = await res.json();
       if (data.error) { setError(data.error); } else { setResult(data as KTPTrackResult); }
     } catch { setError('Network error. Please check your connection and try again.'); }
     finally { setLoading(false); }
-  }, [imageUrl]);
+  }, [imageBase64]);
+
+  const clearImage = useCallback(() => {
+    setImagePreview(null);
+    setImageBase64(null);
+    setFileName('');
+    setResult(null);
+    setError('');
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  }, []);
 
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-3 mb-2">
         <div className="p-2 rounded-lg bg-teal-500/20 border border-teal-500/30"><MapPin className="w-5 h-5 text-teal-400" /></div>
-        <div><h2 className="text-xl font-bold">KTP Location Tracker</h2><p className="text-sm text-muted-foreground">Extract KTP data & track location from photo</p></div>
+        <div><h2 className="text-xl font-bold">KTP Location Tracker</h2><p className="text-sm text-muted-foreground">Upload KTP photo → VLM extraction → location tracking</p></div>
       </div>
 
-      <div className="flex gap-3">
-        <div className="relative flex-1">
-          <Upload className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input placeholder="Enter KTP photo URL..." value={imageUrl} onChange={(e) => setImageUrl(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && search()} className="pl-10 bg-card/50 border-border/50" />
+      {/* File Upload Area */}
+      {!imagePreview ? (
+        <div
+          onDrop={handleDrop}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onClick={() => fileInputRef.current?.click()}
+          className={`relative border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all ${
+            dragOver ? 'border-teal-400 bg-teal-500/10' : 'border-border/50 bg-card/20 hover:border-teal-500/50 hover:bg-card/40'
+          }`}
+        >
+          <Upload className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
+          <p className="text-sm font-medium mb-1">Drop KTP photo here or click to upload</p>
+          <p className="text-xs text-muted-foreground">Supports JPEG, PNG, WebP (max 10MB)</p>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); }}
+            className="hidden"
+          />
         </div>
-        <Button onClick={search} disabled={loading} className="bg-teal-600 hover:bg-teal-700 text-white min-w-[100px]">
-          {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <MapPin className="w-4 h-4 mr-2" />}{loading ? 'Tracking' : 'Track'}
-        </Button>
-      </div>
+      ) : (
+        <div className="space-y-2">
+          <div className="relative rounded-xl overflow-hidden border border-border/50 bg-card/30">
+            <img src={imagePreview} alt="KTP Preview" className="max-h-64 mx-auto object-contain p-2" />
+            <button onClick={clearImage} className="absolute top-2 right-2 p-1.5 rounded-lg bg-black/60 hover:bg-black/80 text-white transition-colors">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <ImageIcon className="w-3 h-3" />
+            <span className="truncate">{fileName}</span>
+            <Badge variant="outline" className="text-[9px] ml-auto">Ready</Badge>
+          </div>
+          <Button onClick={search} disabled={loading} className="bg-teal-600 hover:bg-teal-700 text-white w-full">
+            {loading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <MapPin className="w-4 h-4 mr-2" />}{loading ? 'Extracting & Tracking...' : 'Extract Data & Track Location'}
+          </Button>
+        </div>
+      )}
 
       {loading && <LoadingIndicator message="Analyzing KTP image with VLM and tracking location..." />}
       {error && <ErrorCard error={error} />}
       {result && (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
-          {/* KTP Image Preview */}
-          <Card className="border-teal-500/30 bg-teal-500/5">
-            <CardContent className="p-4">
-              <div className="flex items-center gap-2 mb-3">
-                <ImageIcon className="w-4 h-4 text-teal-400" />
-                <span className="text-sm font-semibold text-teal-400">KTP Image</span>
-              </div>
-              <div className="rounded-lg overflow-hidden border border-border/30">
-                <img src={imageUrl} alt="KTP Preview" className="max-h-64 mx-auto object-contain" />
-              </div>
-            </CardContent>
-          </Card>
-
           {/* Extracted KTP Data */}
           <Card className="border-teal-500/30 bg-teal-500/5">
             <CardContent className="p-4">
@@ -1582,7 +1747,6 @@ function KTPTrackModule() {
                     <div key={i} className="p-2 rounded-lg border border-red-500/30 bg-red-500/5">
                       <div className="flex items-center gap-2"><SeverityBadge severity={leak.severity} /><span className="text-sm font-medium">{leak.type}</span></div>
                       <p className="text-xs text-muted-foreground mt-1">{leak.description}</p>
-                      {leak.url && <a href={leak.url} target="_blank" rel="noopener noreferrer" className="text-[10px] text-red-400 hover:underline flex items-center gap-1 mt-1"><ExternalLink className="w-2 h-2" />{leak.source}</a>}
                     </div>
                   ))}
                 </div>
@@ -1594,26 +1758,12 @@ function KTPTrackModule() {
           <Tabs defaultValue="public">
             <TabsList className="bg-card/50 flex-wrap">
               <TabsTrigger value="public" className="data-[state=active]:bg-teal-500/20 data-[state=active]:text-teal-400"><FileSearch className="w-3 h-3 mr-1" /> Public Records ({result.publicRecords?.length || 0})</TabsTrigger>
-              <TabsTrigger value="leaks" className="data-[state=active]:bg-red-500/20 data-[state=active]:text-red-400"><AlertTriangle className="w-3 h-3 mr-1" /> Data Leaks ({result.dataLeaks?.length || 0})</TabsTrigger>
               <TabsTrigger value="ai" className="data-[state=active]:bg-emerald-500/20 data-[state=active]:text-emerald-400"><Brain className="w-3 h-3 mr-1" /> AI Analysis</TabsTrigger>
             </TabsList>
             <TabsContent value="public" className="mt-3">
               <div className="space-y-2 max-h-96 overflow-y-auto">
                 {result.publicRecords?.map((r, i) => <ResultCard key={i} title={r.title} snippet={r.snippet} url={r.url} domain={r.domain} />)}
                 {(!result.publicRecords || result.publicRecords.length === 0) && <p className="text-sm text-muted-foreground text-center py-4">No public records found.</p>}
-              </div>
-            </TabsContent>
-            <TabsContent value="leaks" className="mt-3">
-              <div className="space-y-2 max-h-96 overflow-y-auto">
-                {result.dataLeaks?.map((leak, i) => (
-                  <motion.div key={i} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
-                    className="p-3 rounded-lg border border-red-500/30 bg-red-500/5">
-                    <div className="flex items-center gap-2 mb-1"><SeverityBadge severity={leak.severity} /><span className="text-sm font-medium">{leak.type}</span></div>
-                    <p className="text-xs text-muted-foreground">{leak.description}</p>
-                    {leak.url && <a href={leak.url} target="_blank" rel="noopener noreferrer" className="text-[10px] text-red-400 hover:underline flex items-center gap-1 mt-1"><ExternalLink className="w-2 h-2" />{leak.source}</a>}
-                  </motion.div>
-                ))}
-                {(!result.dataLeaks || result.dataLeaks.length === 0) && <p className="text-sm text-muted-foreground text-center py-4">No data leaks detected.</p>}
               </div>
             </TabsContent>
             <TabsContent value="ai" className="mt-3"><AIAnalysisCard analysis={result.aiAnalysis || ''} isLoading={false} /></TabsContent>
@@ -1971,6 +2121,280 @@ function WebVulnModule() {
 }
 
 // ============================================================
+// MAC Address Lookup Module
+// ============================================================
+interface MACResult {
+  mac: string;
+  oui: string;
+  manufacturer: string;
+  deviceType: string;
+  dataLeaks: Array<{ type: string; severity: string; source: string; description: string; url: string }>;
+  searchResults: Array<{ url: string; title: string; snippet: string; domain: string }>;
+  aiAnalysis: string;
+}
+
+function MACModule() {
+  const [mac, setMac] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState<MACResult | null>(null);
+  const [error, setError] = useState('');
+
+  const search = useCallback(async () => {
+    if (!mac.trim()) return;
+    setLoading(true); setResult(null); setError('');
+    try {
+      const res = await fetch('/api/osint/mac', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mac: mac.trim() }) });
+      const data = await res.json();
+      if (data.error) { setError(data.error); } else { setResult(data as MACResult); }
+    } catch { setError('Network error. Please check your connection and try again.'); }
+    finally { setLoading(false); }
+  }, [mac]);
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center gap-3 mb-2">
+        <div className="p-2 rounded-lg bg-yellow-500/20 border border-yellow-500/30"><Wifi className="w-5 h-5 text-yellow-400" /></div>
+        <div><h2 className="text-xl font-bold">MAC Address Lookup</h2><p className="text-sm text-muted-foreground">Device manufacturer & network intelligence</p></div>
+      </div>
+
+      <div className="flex gap-3">
+        <div className="relative flex-1">
+          <Wifi className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <Input placeholder="Enter MAC address (e.g., AA:BB:CC:DD:EE:FF)..." value={mac} onChange={(e) => setMac(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && search()} className="pl-10 bg-card/50 border-border/50 font-mono" />
+        </div>
+        <Button onClick={search} disabled={loading} className="bg-yellow-600 hover:bg-yellow-700 text-white min-w-[100px]">
+          {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4 mr-2" />}{loading ? 'Looking' : 'Lookup'}
+        </Button>
+      </div>
+
+      {loading && <LoadingIndicator message="Looking up MAC address intelligence..." />}
+      {error && <ErrorCard error={error} />}
+      {result && (
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
+          <Card className="border-yellow-500/30 bg-yellow-500/5">
+            <CardContent className="p-4">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div><div className="text-xs text-muted-foreground">MAC Address</div><div className="text-sm font-mono font-medium">{result.mac}</div></div>
+                <div><div className="text-xs text-muted-foreground">OUI</div><div className="text-sm font-mono font-medium text-yellow-400">{result.oui}</div></div>
+                <div><div className="text-xs text-muted-foreground">Manufacturer</div><div className="text-sm font-medium">{result.manufacturer || 'Unknown'}</div></div>
+                <div><div className="text-xs text-muted-foreground">Device Type</div><div className="text-sm font-medium">{result.deviceType || 'Unknown'}</div></div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {result.dataLeaks?.length > 0 && (
+            <Card className="border-red-600/50 bg-red-600/10">
+              <CardContent className="p-4">
+                <div className="flex items-center gap-2 mb-3"><ShieldAlert className="w-5 h-5 text-red-400" /><span className="text-sm font-bold text-red-400">SECURITY ALERTS: {result.dataLeaks.length}</span></div>
+                <div className="space-y-2">
+                  {result.dataLeaks.map((leak, i) => (
+                    <div key={i} className="p-2 rounded-lg border border-red-500/30 bg-red-500/5">
+                      <div className="flex items-center gap-2"><SeverityBadge severity={leak.severity} /><span className="text-sm font-medium">{leak.type}</span></div>
+                      <p className="text-xs text-muted-foreground mt-1">{leak.description}</p>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          <div className="space-y-2 max-h-96 overflow-y-auto">
+            {result.searchResults?.map((r, i) => <ResultCard key={i} {...r} />)}
+          </div>
+
+          <AIAnalysisCard analysis={result.aiAnalysis || ''} isLoading={false} />
+        </motion.div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
+// Bitcoin Address Intelligence Module
+// ============================================================
+interface BitcoinResult {
+  address: string;
+  addressType: string;
+  searchResults: Array<{ url: string; title: string; snippet: string; domain: string }>;
+  transactionResults: Array<{ url: string; title: string; snippet: string; domain: string }>;
+  riskResults: Array<{ url: string; title: string; snippet: string; domain: string }>;
+  walletResults: Array<{ url: string; title: string; snippet: string; domain: string }>;
+  exchangeResults: Array<{ url: string; title: string; snippet: string; domain: string }>;
+  riskLevel: string;
+  aiAnalysis: string;
+}
+
+function BitcoinModule() {
+  const [address, setAddress] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState<BitcoinResult | null>(null);
+  const [error, setError] = useState('');
+
+  const search = useCallback(async () => {
+    if (!address.trim()) return;
+    setLoading(true); setResult(null); setError('');
+    try {
+      const res = await fetch('/api/osint/bitcoin', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ address: address.trim() }) });
+      const data = await res.json();
+      if (data.error) { setError(data.error); } else { setResult(data as BitcoinResult); }
+    } catch { setError('Network error. Please check your connection and try again.'); }
+    finally { setLoading(false); }
+  }, [address]);
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center gap-3 mb-2">
+        <div className="p-2 rounded-lg bg-orange-500/20 border border-orange-500/30"><Zap className="w-5 h-5 text-orange-400" /></div>
+        <div><h2 className="text-xl font-bold">Bitcoin Intelligence</h2><p className="text-sm text-muted-foreground">Crypto address analysis & risk assessment</p></div>
+      </div>
+
+      <div className="flex gap-3">
+        <div className="relative flex-1">
+          <Zap className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <Input placeholder="Enter Bitcoin address (1..., 3..., bc1...)..." value={address} onChange={(e) => setAddress(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && search()} className="pl-10 bg-card/50 border-border/50 font-mono text-sm" />
+        </div>
+        <Button onClick={search} disabled={loading} className="bg-orange-600 hover:bg-orange-700 text-white min-w-[100px]">
+          {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4 mr-2" />}{loading ? 'Analyzing' : 'Analyze'}
+        </Button>
+      </div>
+
+      {loading && <LoadingIndicator message="Analyzing Bitcoin address on blockchain and risk databases..." />}
+      {error && <ErrorCard error={error} />}
+      {result && (
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
+          <Card className="border-orange-500/30 bg-orange-500/5">
+            <CardContent className="p-4">
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                <div><div className="text-xs text-muted-foreground">Address</div><div className="text-sm font-mono font-medium break-all">{result.address}</div></div>
+                <div><div className="text-xs text-muted-foreground">Type</div><div className="text-sm font-medium text-orange-400">{result.addressType}</div></div>
+                <div><div className="text-xs text-muted-foreground">Risk Level</div>
+                  <Badge className={`mt-1 ${result.riskLevel === 'high' || result.riskLevel === 'critical' ? 'bg-red-500/20 text-red-400 border-red-500/30' : result.riskLevel === 'medium' ? 'bg-amber-500/20 text-amber-400 border-amber-500/30' : 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'}`}>
+                    {result.riskLevel?.toUpperCase() || 'UNKNOWN'}
+                  </Badge>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Tabs defaultValue="transactions">
+            <TabsList className="bg-card/50 flex-wrap">
+              <TabsTrigger value="transactions" className="data-[state=active]:bg-orange-500/20 data-[state=active]:text-orange-400"><Activity className="w-3 h-3 mr-1" /> Transactions ({result.transactionResults?.length || 0})</TabsTrigger>
+              <TabsTrigger value="risk" className="data-[state=active]:bg-red-500/20 data-[state=active]:text-red-400"><AlertTriangle className="w-3 h-3 mr-1" /> Risk ({result.riskResults?.length || 0})</TabsTrigger>
+              <TabsTrigger value="wallets" className="data-[state=active]:bg-amber-500/20 data-[state=active]:text-amber-400"><Key className="w-3 h-3 mr-1" /> Wallets ({result.walletResults?.length || 0})</TabsTrigger>
+              <TabsTrigger value="exchanges" className="data-[state=active]:bg-cyan-500/20 data-[state=active]:text-cyan-400"><Database className="w-3 h-3 mr-1" /> Exchanges ({result.exchangeResults?.length || 0})</TabsTrigger>
+            </TabsList>
+            <TabsContent value="transactions" className="mt-3"><div className="space-y-2 max-h-96 overflow-y-auto">{result.transactionResults?.map((r, i) => <ResultCard key={i} {...r} />)}</div></TabsContent>
+            <TabsContent value="risk" className="mt-3"><div className="space-y-2 max-h-96 overflow-y-auto">{result.riskResults?.map((r, i) => <ResultCard key={i} {...r} />)}</div></TabsContent>
+            <TabsContent value="wallets" className="mt-3"><div className="space-y-2 max-h-96 overflow-y-auto">{result.walletResults?.map((r, i) => <ResultCard key={i} {...r} />)}</div></TabsContent>
+            <TabsContent value="exchanges" className="mt-3"><div className="space-y-2 max-h-96 overflow-y-auto">{result.exchangeResults?.map((r, i) => <ResultCard key={i} {...r} />)}</div></TabsContent>
+          </Tabs>
+
+          <AIAnalysisCard analysis={result.aiAnalysis || ''} isLoading={false} />
+        </motion.div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
+// Vehicle Plate Check Module
+// ============================================================
+interface VehicleResult {
+  plate: string;
+  regionCode: string;
+  region: string;
+  province: string;
+  searchResults: Array<{ url: string; title: string; snippet: string; domain: string }>;
+  publicRecords: Array<{ url: string; title: string; snippet: string; domain: string }>;
+  crimeReports: Array<{ url: string; title: string; snippet: string; domain: string }>;
+  dataLeaks: Array<{ type: string; severity: string; source: string; description: string; url: string }>;
+  aiAnalysis: string;
+}
+
+function VehicleModule() {
+  const [plate, setPlate] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState<VehicleResult | null>(null);
+  const [error, setError] = useState('');
+
+  const search = useCallback(async () => {
+    if (!plate.trim()) return;
+    setLoading(true); setResult(null); setError('');
+    try {
+      const res = await fetch('/api/osint/vehicle', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ plate: plate.trim() }) });
+      const data = await res.json();
+      if (data.error) { setError(data.error); } else { setResult(data as VehicleResult); }
+    } catch { setError('Network error. Please check your connection and try again.'); }
+    finally { setLoading(false); }
+  }, [plate]);
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center gap-3 mb-2">
+        <div className="p-2 rounded-lg bg-lime-500/20 border border-lime-500/30"><Target className="w-5 h-5 text-lime-400" /></div>
+        <div><h2 className="text-xl font-bold">Vehicle Plate Check</h2><p className="text-sm text-muted-foreground">Indonesian vehicle plate lookup & intelligence</p></div>
+      </div>
+
+      <div className="flex gap-3">
+        <div className="relative flex-1">
+          <Target className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <Input placeholder="Enter plate number (e.g., B 1234 AB)..." value={plate} onChange={(e) => setPlate(e.target.value.toUpperCase())} onKeyDown={(e) => e.key === 'Enter' && search()} className="pl-10 bg-card/50 border-border/50 font-mono uppercase" />
+        </div>
+        <Button onClick={search} disabled={loading} className="bg-lime-600 hover:bg-lime-700 text-white min-w-[100px]">
+          {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4 mr-2" />}{loading ? 'Checking' : 'Check'}
+        </Button>
+      </div>
+
+      {loading && <LoadingIndicator message="Looking up vehicle plate intelligence..." />}
+      {error && <ErrorCard error={error} />}
+      {result && (
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
+          <Card className="border-lime-500/30 bg-lime-500/5">
+            <CardContent className="p-4">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div><div className="text-xs text-muted-foreground">Plate Number</div><div className="text-lg font-mono font-bold text-lime-400">{result.plate}</div></div>
+                <div><div className="text-xs text-muted-foreground">Region Code</div><div className="text-sm font-medium">{result.regionCode}</div></div>
+                <div><div className="text-xs text-muted-foreground">Region</div><div className="text-sm font-medium">{result.region || 'Unknown'}</div></div>
+                <div><div className="text-xs text-muted-foreground">Province</div><div className="text-sm font-medium">{result.province || 'Unknown'}</div></div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {result.dataLeaks?.length > 0 && (
+            <Card className="border-red-600/50 bg-red-600/10">
+              <CardContent className="p-4">
+                <div className="flex items-center gap-2 mb-3"><ShieldAlert className="w-5 h-5 text-red-400" /><span className="text-sm font-bold text-red-400">ALERTS: {result.dataLeaks.length}</span></div>
+                <div className="space-y-2">
+                  {result.dataLeaks.map((leak, i) => (
+                    <div key={i} className="p-2 rounded-lg border border-red-500/30 bg-red-500/5">
+                      <div className="flex items-center gap-2"><SeverityBadge severity={leak.severity} /><span className="text-sm font-medium">{leak.type}</span></div>
+                      <p className="text-xs text-muted-foreground mt-1">{leak.description}</p>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          <Tabs defaultValue="public">
+            <TabsList className="bg-card/50 flex-wrap">
+              <TabsTrigger value="public" className="data-[state=active]:bg-lime-500/20 data-[state=active]:text-lime-400"><FileSearch className="w-3 h-3 mr-1" /> Public ({result.publicRecords?.length || 0})</TabsTrigger>
+              <TabsTrigger value="crime" className="data-[state=active]:bg-red-500/20 data-[state=active]:text-red-400"><AlertTriangle className="w-3 h-3 mr-1" /> Crime ({result.crimeReports?.length || 0})</TabsTrigger>
+              <TabsTrigger value="search" className="data-[state=active]:bg-amber-500/20 data-[state=active]:text-amber-400"><Search className="w-3 h-3 mr-1" /> Search ({result.searchResults?.length || 0})</TabsTrigger>
+            </TabsList>
+            <TabsContent value="public" className="mt-3"><div className="space-y-2 max-h-96 overflow-y-auto">{result.publicRecords?.map((r, i) => <ResultCard key={i} {...r} />)}</div></TabsContent>
+            <TabsContent value="crime" className="mt-3"><div className="space-y-2 max-h-96 overflow-y-auto">{result.crimeReports?.map((r, i) => <ResultCard key={i} {...r} />)}</div></TabsContent>
+            <TabsContent value="search" className="mt-3"><div className="space-y-2 max-h-96 overflow-y-auto">{result.searchResults?.map((r, i) => <ResultCard key={i} {...r} />)}</div></TabsContent>
+          </Tabs>
+
+          <AIAnalysisCard analysis={result.aiAnalysis || ''} isLoading={false} />
+        </motion.div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
 // AI Chat Module
 // ============================================================
 function AIChatModule() {
@@ -2151,6 +2575,9 @@ export default function OSINTApp() {
       case 'ktptrack': return <KTPTrackModule />;
       case 'websec': return <WebSecModule />;
       case 'webvuln': return <WebVulnModule />;
+      case 'mac': return <MACModule />;
+      case 'bitcoin': return <BitcoinModule />;
+      case 'vehicle': return <VehicleModule />;
       case 'aichat': return <AIChatModule />;
       default: return <DashboardModule />;
     }

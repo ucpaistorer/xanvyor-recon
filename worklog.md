@@ -285,3 +285,136 @@ Stage Summary:
 - Enhanced Phone module GetContact feature with better search and AI extraction
 - Dev server running on port 3000, all endpoints returning HTTP 200
 - Lint passes with no errors
+
+---
+Task ID: 4
+Agent: API Updater
+Task: Update KTP tracking API route to accept both image URL and base64 encoded image data
+
+Work Log:
+- Read /src/app/api/osint/ktp-track/route.ts
+- Updated request body parsing to destructure both `imageUrl` and `imageBase64` from the request JSON
+- Added `effectiveImageUrl` variable that prefers `imageBase64` over `imageUrl` (supports data URLs like `data:image/jpeg;base64,...`)
+- Updated error message to "KTP image is required (upload a file or provide URL)" when neither is provided
+- Replaced `imageUrl` reference in VLM call with `effectiveImageUrl` so base64 data URLs are passed directly to the vision model
+- No other references to `imageUrl` existed in the file (the variable was only used in the VLM call)
+
+Stage Summary:
+- KTP tracking API now accepts both imageUrl (existing) and imageBase64 (new) in request body
+- When imageBase64 is provided, it takes precedence and is used as a data URL for the VLM call
+- Backward compatible - existing imageUrl-only usage continues to work
+- Lint checks pass
+
+---
+Task ID: 3
+Agent: API Updater
+Task: Update image analysis API route to accept both image URL and base64 encoded image data
+
+Work Log:
+- Read /src/app/api/osint/image-analysis/route.ts
+- Updated request body parsing to destructure `imageBase64` alongside existing `imageUrl` and `prompt`
+- Added `effectiveImageUrl` variable computed as `imageBase64 || imageUrl` — base64 takes precedence when provided
+- Updated error message from "Image URL is required" to "Image is required (upload a file or provide URL)" when neither is provided
+- Replaced `imageUrl` reference in VLM call with `effectiveImageUrl` so base64 data URLs (e.g. `data:image/jpeg;base64,...`) are passed directly to the vision model
+- Updated response JSON to return `imageUrl: effectiveImageUrl` instead of the raw `imageUrl` field
+- Backward compatible — existing imageUrl-only usage continues to work
+
+Stage Summary:
+- Image analysis API now accepts both imageUrl (existing) and imageBase64 (new) in request body
+- When imageBase64 is provided, it takes precedence and is used as a data URL for the VLM call
+- Response returns the effective image URL used (either base64 data URL or the provided URL)
+- Backward compatible with existing clients
+
+---
+Task ID: 6
+Agent: API Developer
+Task: Create 3 new OSINT API routes (MAC Address Lookup, Bitcoin Address Intelligence, Vehicle Plate Check)
+
+Work Log:
+- Created /api/osint/mac/route.ts - MAC Address Lookup API
+  - Validates MAC address format (AA:BB:CC:DD:EE:FF or AA-BB-CC-DD-EE-FF, case-insensitive)
+  - Extracts OUI (first 3 octets) for manufacturer identification
+  - 5 sequential web searches: manufacturer lookup, device type info, IEEE OUI registry, data leak/vulnerability search, network device identification
+  - 30 manufacturer patterns for common vendors (Apple, Samsung, Cisco, Intel, TP-Link, etc.)
+  - Regex-based manufacturer extraction from OUI registry results as fallback
+  - Device type detection from network search results (Router, Switch, Access Point, IoT, Camera, Printer, etc.)
+  - Data leak detection with severity classification (critical/high/medium/low) for malware, exploits, default credentials, vulnerabilities
+  - Comprehensive AI analysis with 7 sections: MAC Analysis, Manufacturer Intelligence, Device Identification, Data Leak & Vulnerability, Network Intelligence, Security Assessment, Investigation Recommendations
+  - Returns: mac, oui, manufacturer, deviceType, dataLeaks, searchResults, aiAnalysis
+
+- Created /api/osint/bitcoin/route.ts - Bitcoin Address Intelligence API
+  - Validates Bitcoin address format (P2PKH starting with 1, P2SH starting with 3, Bech32 starting with bc1)
+  - Address type classification (Legacy, SegWit Compatible, Native SegWit)
+  - 6 sequential web searches: blockchain explorer, transaction history, wallet clusters, exchange connections, risk/sanctions/OFAC, darknet/criminal activity
+  - Risk assessment with 3 severity tiers (critical: ransomware/OFAC/sanctions/terrorism/darknet markets, high: mixers/scam/fraud/phishing/stolen/ponzi, medium: gambling/darknet/illicit/suspicious)
+  - Overall risk level determination (low/medium/high/critical)
+  - Exchange detection for 14 major exchanges (Binance, Coinbase, Kraken, Huobi, OKX, etc.)
+  - Blockchain explorer result filtering (blockchain.com, blockstream.info, mempool.space, etc.)
+  - Wallet cluster analysis
+  - Comprehensive AI analysis with 8 sections: Address Analysis, Transaction Intelligence, Wallet & Cluster Intelligence, Exchange & Service Connections, Risk Assessment, Blockchain Forensics, Security & Compliance, Investigation Recommendations
+  - Returns: address, addressType, searchResults, transactionResults, riskResults, walletResults, exchangeResults, aiAnalysis
+
+- Created /api/osint/vehicle/route.ts - Vehicle Plate Check API
+  - Validates Indonesian vehicle plate format (e.g., B 1234 AB, D 5678 XY)
+  - Region code extraction and mapping with 60+ region codes covering all Indonesian provinces
+  - Region coverage: DKI Jakarta, Jawa Barat, Jawa Tengah, Jawa Timur, Kalimantan (4 provinces), Sulawesi (5 provinces), Bali, NTB, NTT, Maluku (3 provinces), Papua, plus special plates (RI government, CD diplomatic, TNI military, Polri police)
+  - 6 sequential web searches: vehicle registration, STNK data, public records, crime/accident reports, data leaks, vehicle type/model info
+  - Crime report detection with severity classification: Vehicle Theft (critical), Criminal Activity (critical), Fraud (high), Traffic Violation/Tilang (medium), Traffic Accident (medium)
+  - Data leak detection with severity classification: Identity Document Leak (critical), Credential Leak (critical), Data Breach (high), Personal Data Exposure (high)
+  - Vehicle type detection from search results (Motorcycle, Car, SUV, Pickup, Bus, Truck, Minibus)
+  - Comprehensive AI analysis with 8 sections: Plate Number Analysis, Regional Intelligence, Vehicle Identification, Public Records & Data Exposure, Crime & Safety Intelligence, Data Leak & Breach Intelligence, Security Assessment, Investigation Recommendations
+  - Returns: plate, regionCode, region, province, vehicleType, searchResults, publicRecords, crimeReports, dataLeaks, stnkResults, aiAnalysis
+
+- All 3 routes follow existing patterns: import from @/lib/zai, sequential web searches, safeAIAnalysis, proper error handling
+- ESLint passes with zero errors
+- Dev server compiles and serves all routes successfully
+
+Stage Summary:
+- 3 new OSINT API routes created and fully functional
+- MAC Address Lookup: OUI-based manufacturer identification, device type detection, vulnerability/leak scanning
+- Bitcoin Address Intelligence: Blockchain forensics, risk assessment (OFAC/sanctions/darknet), exchange detection, wallet clustering
+- Vehicle Plate Check: Indonesian plate validation, 60+ region codes, crime reports, data leak detection
+- All routes use sequential searches with retry logic to handle rate limiting
+- Comprehensive AI analysis in every route with structured intelligence reports
+
+## Task 2+5 - Frontend Module Updates (page.tsx)
+
+**Date**: 2026-03-04
+
+### Changes Made
+
+1. **Updated ModuleType** (line 30): Added `'mac' | 'bitcoin' | 'vehicle'` to the union type.
+
+2. **Updated MODULES array** (lines 54-56): Added 3 new module entries before `aichat`:
+   - `mac` - MAC Lookup (Wifi icon, yellow/amber gradient)
+   - `bitcoin` - Bitcoin Intel (Zap icon, orange/yellow gradient)
+   - `vehicle` - Vehicle Check (Target icon, lime/green gradient)
+
+3. **Replaced ImageModule** (was line ~1036): Changed from URL input to file upload with drag-and-drop:
+   - Removed `imageUrl` state, added `imagePreview`, `imageBase64`, `fileName`, `dragOver` states and `fileInputRef`
+   - Added `handleFile`, `handleDrop`, `handleDragOver`, `handleDragLeave`, `clearImage` callbacks
+   - Upload area shows drag-drop zone when no image, preview with clear button when image loaded
+   - Sends `imageBase64` to API instead of `imageUrl`
+   - Added `relatedIntel` section in results
+
+4. **Replaced KTPTrackModule** (was line ~1430): Changed from URL input to file upload with drag-and-drop:
+   - Same pattern as ImageModule: file upload with drag-drop
+   - Sends `imageBase64` to API instead of `imageUrl`
+   - Updated tab structure: removed "Data Leaks" tab, kept "Public Records" and "AI Analysis" tabs
+   - Button shows "Extract Data & Track Location" when image is loaded
+
+5. **Added 3 New OSINT Module Components** (after WebVulnModule, before AIChatModule):
+   - **MACModule**: MAC address lookup with OUI, manufacturer, device type display; security alerts; search results; AI analysis
+   - **BitcoinModule**: Bitcoin address analysis with address type, risk level badge; tabs for transactions/risk/wallets/exchanges; AI analysis
+   - **VehicleModule**: Indonesian plate lookup with region code, region, province; alerts; tabs for public/crime/search; AI analysis
+
+6. **Updated renderModule switch** (line ~2577): Added cases for `'mac'`, `'bitcoin'`, `'vehicle'`.
+
+7. **Updated DashboardModule**:
+   - Changed stats from `14+` to `17+`
+   - Added 3 new capabilities: MAC Address Intelligence, Bitcoin Intelligence, Vehicle Plate Check
+
+### Verification
+- ESLint passed with no errors
+- Dev server compiling successfully
+- All icons (Wifi, Zap, Target) were already imported

@@ -37,9 +37,10 @@ interface LocationData {
 // ============================================================
 export async function POST(request: NextRequest) {
   try {
-    const { imageUrl } = await request.json();
-    if (!imageUrl) {
-      return NextResponse.json({ error: 'Image URL is required' }, { status: 400 });
+    const { imageUrl, imageBase64 } = await request.json();
+    const effectiveImageUrl = imageBase64 || imageUrl;
+    if (!effectiveImageUrl) {
+      return NextResponse.json({ error: 'KTP image is required (upload a file or provide URL)' }, { status: 400 });
     }
 
     // ----------------------------------------------------------
@@ -88,7 +89,7 @@ IMPORTANT RULES:
             role: 'user',
             content: [
               { type: 'text', text: vlmPrompt },
-              { type: 'image_url', image_url: { url: imageUrl } },
+              { type: 'image_url', image_url: { url: effectiveImageUrl } },
             ],
           },
         ],
