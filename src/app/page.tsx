@@ -11,7 +11,7 @@ import {
   Cpu, Lock, Unlock, Upload, Copy, Check,
   Home, ChevronLeft, ChevronRight, Menu, X, Sparkles,
   ShieldAlert, ShieldCheck, ShieldX, ShieldQuestion,
-  Users, Bug, Globe2, CloudOff, Cloud,
+  Users, Bug, Globe2, CloudOff, Cloud, Code,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -27,7 +27,7 @@ import ReactMarkdown from 'react-markdown';
 // ============================================================
 // Types
 // ============================================================
-type ModuleType = 'dashboard' | 'username' | 'email' | 'ip' | 'domain' | 'phone' | 'websearch' | 'image' | 'aichat' | 'dns' | 'nik' | 'ktptrack';
+type ModuleType = 'dashboard' | 'username' | 'email' | 'ip' | 'domain' | 'phone' | 'websearch' | 'image' | 'aichat' | 'dns' | 'nik' | 'ktptrack' | 'websec' | 'webvuln';
 
 interface Module {
   id: ModuleType;
@@ -49,6 +49,8 @@ const MODULES: Module[] = [
   { id: 'dns', name: 'DNS Recon', icon: <Network className="w-4 h-4" />, description: 'DNS enumeration', color: 'from-lime-500 to-green-500' },
   { id: 'nik', name: 'NIK Check', icon: <Key className="w-4 h-4" />, description: 'NIK decode & KK data', color: 'from-orange-500 to-amber-500' },
   { id: 'ktptrack', name: 'KTP Tracker', icon: <MapPin className="w-4 h-4" />, description: 'KTP photo & location', color: 'from-teal-500 to-cyan-500' },
+  { id: 'websec', name: 'Web Security', icon: <ShieldCheck className="w-4 h-4" />, description: 'Website security audit', color: 'from-emerald-500 to-green-600' },
+  { id: 'webvuln', name: 'Web Vuln Scan', icon: <Bug className="w-4 h-4" />, description: 'Vulnerability scanner', color: 'from-red-500 to-orange-500' },
   { id: 'aichat', name: 'RECON-AI', icon: <Brain className="w-4 h-4" />, description: 'OSINT AI assistant', color: 'from-fuchsia-500 to-pink-500' },
 ];
 
@@ -194,7 +196,7 @@ function ResultCard({ title, snippet, url, date, domain }: { title: string; snip
 // ============================================================
 function DashboardModule() {
   const stats = [
-    { label: 'Tools Available', value: '12+', icon: <Layers className="w-5 h-5" />, color: 'text-emerald-400' },
+    { label: 'Tools Available', value: '14+', icon: <Layers className="w-5 h-5" />, color: 'text-emerald-400' },
     { label: 'AI Engines', value: '4', icon: <Cpu className="w-5 h-5" />, color: 'text-cyan-400' },
     { label: 'Data Sources', value: '100+', icon: <Database className="w-5 h-5" />, color: 'text-amber-400' },
     { label: 'Real-time', value: 'Yes', icon: <Activity className="w-5 h-5" />, color: 'text-rose-400' },
@@ -212,6 +214,8 @@ function DashboardModule() {
     { icon: <Key className="w-5 h-5" />, title: 'NIK Check', desc: 'Decode NIK structure, derive KK number, area code intelligence, and data leak detection' },
     { icon: <MapPin className="w-5 h-5" />, title: 'KTP Location Tracker', desc: 'VLM-powered KTP data extraction, geocoding, and interactive map tracking' },
     { icon: <Brain className="w-5 h-5" />, title: 'RECON-AI Assistant', desc: 'Conversational OSINT AI for analysis guidance and intelligence synthesis' },
+    { icon: <ShieldCheck className="w-5 h-5" />, title: 'Web Security Audit', desc: 'SSL/TLS check, security headers analysis, cookie security, malware & blacklist detection' },
+    { icon: <Bug className="w-5 h-5" />, title: 'Web Vulnerability Scanner', desc: 'SQL injection, XSS, CSRF, directory traversal, CVE scan, and exposed endpoint detection' },
     { icon: <Radar className="w-5 h-5" />, title: 'Threat Intelligence', desc: 'Real-time threat assessment powered by AI across all modules' },
   ];
 
@@ -1545,6 +1549,350 @@ function KTPTrackModule() {
 }
 
 // ============================================================
+// Web Security Check Module
+// ============================================================
+interface WebSecCheckItem { name: string; status: string; detail: string; }
+interface WebSecCheckCategory { category: string; status: string; items: WebSecCheckItem[]; }
+interface WebSecTechVuln { technology: string; detail: string; severity: string; source: string; url: string; }
+interface WebSecResult { hostname: string; url: string; overallStatus: string; securityScore: number; securityChecks: WebSecCheckCategory[]; techVulnerabilities: WebSecTechVuln[]; sslResults: Array<{ url: string; title: string; snippet: string; domain: string }>; headerResults: Array<{ url: string; title: string; snippet: string; domain: string }>; cookieResults: Array<{ url: string; title: string; snippet: string; domain: string }>; malwareResults: Array<{ url: string; title: string; snippet: string; domain: string }>; breachResults: Array<{ url: string; title: string; snippet: string; domain: string }>; techResults: Array<{ url: string; title: string; snippet: string; domain: string }>; aiAnalysis: string; }
+
+function WebSecModule() {
+  const [url, setUrl] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState<WebSecResult | null>(null);
+  const [error, setError] = useState('');
+
+  const check = useCallback(async () => {
+    if (!url.trim()) return;
+    setLoading(true); setResult(null); setError('');
+    try {
+      const res = await fetch('/api/osint/web-security', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: url.trim() }) });
+      const data = await res.json();
+      if (data.error) { setError(data.error); } else { setResult(data as WebSecResult); }
+    } catch { setError('Network error. Please check your connection and try again.'); }
+    finally { setLoading(false); }
+  }, [url]);
+
+  const getScoreColor = (score: number) => {
+    if (score >= 80) return 'text-emerald-400';
+    if (score >= 50) return 'text-amber-400';
+    return 'text-red-400';
+  };
+
+  const getScoreStroke = (score: number) => {
+    if (score >= 80) return 'stroke-emerald-400';
+    if (score >= 50) return 'stroke-amber-400';
+    return 'stroke-red-400';
+  };
+
+  const getCheckIcon = (status: string) => {
+    if (status === 'pass') return <CheckCircle2 className="w-4 h-4 text-emerald-400" />;
+    if (status === 'fail') return <XCircle className="w-4 h-4 text-red-400" />;
+    if (status === 'warning') return <AlertTriangle className="w-4 h-4 text-amber-400" />;
+    return <HelpCircle className="w-4 h-4 text-gray-500" />;
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center gap-3 mb-2">
+        <div className="p-2 rounded-lg bg-emerald-500/20 border border-emerald-500/30"><ShieldCheck className="w-5 h-5 text-emerald-400" /></div>
+        <div><h2 className="text-xl font-bold">Web Security Audit</h2><p className="text-sm text-muted-foreground">SSL/TLS, security headers, cookie security & blacklist check</p></div>
+      </div>
+
+      <div className="flex gap-3">
+        <div className="relative flex-1">
+          <Globe2 className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <Input placeholder="Enter website URL (e.g., example.com)..." value={url} onChange={(e) => setUrl(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && check()} className="pl-10 bg-card/50 border-border/50" />
+        </div>
+        <Button onClick={check} disabled={loading} className="bg-emerald-600 hover:bg-emerald-700 text-white min-w-[100px]">
+          {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Shield className="w-4 h-4 mr-2" />}{loading ? 'Scanning' : 'Audit'}
+        </Button>
+      </div>
+
+      {loading && <LoadingIndicator message="Running comprehensive web security audit..." />}
+      {error && <ErrorCard error={error} />}
+      {result && (
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
+          {/* Score & Status Overview */}
+          <Card className="border-emerald-500/30 bg-emerald-500/5">
+            <CardContent className="p-6">
+              <div className="flex flex-col md:flex-row items-center gap-6">
+                {/* Circular Score */}
+                <div className="relative w-32 h-32 flex-shrink-0">
+                  <svg className="w-32 h-32 -rotate-90" viewBox="0 0 120 120">
+                    <circle cx="60" cy="60" r="50" fill="none" className="stroke-border/30" strokeWidth="8" />
+                    <circle cx="60" cy="60" r="50" fill="none" className={getScoreStroke(result.securityScore)} strokeWidth="8"
+                      strokeDasharray={`${(result.securityScore / 100) * 314} 314`} strokeLinecap="round" />
+                  </svg>
+                  <div className="absolute inset-0 flex flex-col items-center justify-center">
+                    <span className={`text-3xl font-bold ${getScoreColor(result.securityScore)}`}>{result.securityScore}</span>
+                    <span className="text-[10px] text-muted-foreground">/ 100</span>
+                  </div>
+                </div>
+                {/* Status Details */}
+                <div className="flex-1 space-y-3">
+                  <div className="flex items-center gap-3">
+                    <SafetyStatusBadge status={result.overallStatus} />
+                  </div>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <div className="p-3 rounded-lg border border-border/30 bg-card/30">
+                      <div className="text-xs text-muted-foreground">Target</div>
+                      <div className="text-sm font-mono font-medium truncate">{result.hostname}</div>
+                    </div>
+                    <div className="p-3 rounded-lg border border-border/30 bg-card/30">
+                      <div className="text-xs text-muted-foreground">SSL/TLS</div>
+                      <div className="text-sm font-medium">{result.securityChecks[0]?.status === 'checked' ? 'Analyzed' : 'Unknown'}</div>
+                    </div>
+                    <div className="p-3 rounded-lg border border-border/30 bg-card/30">
+                      <div className="text-xs text-muted-foreground">Headers</div>
+                      <div className="text-sm font-medium">{result.securityChecks[1]?.status === 'checked' ? 'Analyzed' : 'Unknown'}</div>
+                    </div>
+                    <div className="p-3 rounded-lg border border-border/30 bg-card/30">
+                      <div className="text-xs text-muted-foreground">Malware</div>
+                      <div className="text-sm font-medium">{result.securityChecks[3]?.status === 'checked' ? 'Scanned' : 'Unknown'}</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Security Checks by Category */}
+          <div className="space-y-3">
+            {result.securityChecks?.map((category, ci) => (
+              <Card key={ci} className="border-border/30 bg-card/30">
+                <CardHeader className="pb-2 pt-4 px-4">
+                  <CardTitle className="text-sm font-medium flex items-center gap-2">
+                    {category.category === 'SSL/TLS Certificate' && <Lock className="w-4 h-4 text-emerald-400" />}
+                    {category.category === 'Security Headers' && <Shield className="w-4 h-4 text-cyan-400" />}
+                    {category.category === 'Cookie Security' && <Key className="w-4 h-4 text-amber-400" />}
+                    {category.category === 'Malware & Blacklist' && <Bug className="w-4 h-4 text-red-400" />}
+                    {category.category === 'Breach & Incident History' && <AlertTriangle className="w-4 h-4 text-orange-400" />}
+                    {!['SSL/TLS Certificate', 'Security Headers', 'Cookie Security', 'Malware & Blacklist', 'Breach & Incident History'].includes(category.category) && <ShieldCheck className="w-4 h-4 text-muted-foreground" />}
+                    {category.category}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="px-4 pb-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {category.items?.map((item, ii) => (
+                      <div key={ii} className={`flex items-start gap-2 p-2.5 rounded-lg border ${item.status === 'pass' ? 'border-emerald-500/20 bg-emerald-500/5' : item.status === 'fail' ? 'border-red-500/20 bg-red-500/5' : item.status === 'warning' ? 'border-amber-500/20 bg-amber-500/5' : 'border-border/20 bg-card/20'}`}>
+                        {getCheckIcon(item.status)}
+                        <div>
+                          <div className="text-xs font-medium">{item.name}</div>
+                          <div className="text-[10px] text-muted-foreground">{item.detail}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+
+          {/* Technology Vulnerabilities */}
+          {result.techVulnerabilities && result.techVulnerabilities.length > 0 && (
+            <Card className="border-amber-500/30 bg-amber-500/5">
+              <CardHeader className="pb-2 pt-4 px-4">
+                <CardTitle className="text-sm font-medium flex items-center gap-2 text-amber-400">
+                  <Cpu className="w-4 h-4" /> Technology Vulnerabilities ({result.techVulnerabilities.length})
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="px-4 pb-4">
+                <div className="space-y-2 max-h-48 overflow-y-auto">
+                  {result.techVulnerabilities.map((v, i) => (
+                    <div key={i} className="flex items-start justify-between gap-2 p-2.5 rounded-lg border border-amber-500/20 bg-amber-500/5">
+                      <div>
+                        <div className="text-xs font-medium">{v.technology}</div>
+                        <div className="text-[10px] text-muted-foreground">{v.detail}</div>
+                      </div>
+                      <SeverityBadge severity={v.severity} />
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Search Results Tabs */}
+          <Tabs defaultValue="ssl">
+            <TabsList className="bg-card/50 flex-wrap">
+              <TabsTrigger value="ssl" className="data-[state=active]:bg-emerald-500/20 data-[state=active]:text-emerald-400"><Lock className="w-3 h-3 mr-1" /> SSL ({result.sslResults?.length || 0})</TabsTrigger>
+              <TabsTrigger value="headers" className="data-[state=active]:bg-cyan-500/20 data-[state=active]:text-cyan-400"><Shield className="w-3 h-3 mr-1" /> Headers ({result.headerResults?.length || 0})</TabsTrigger>
+              <TabsTrigger value="malware" className="data-[state=active]:bg-red-500/20 data-[state=active]:text-red-400"><Bug className="w-3 h-3 mr-1" /> Malware ({result.malwareResults?.length || 0})</TabsTrigger>
+              <TabsTrigger value="breach" className="data-[state=active]:bg-orange-500/20 data-[state=active]:text-orange-400"><AlertTriangle className="w-3 h-3 mr-1" /> Breach ({result.breachResults?.length || 0})</TabsTrigger>
+            </TabsList>
+            <TabsContent value="ssl" className="mt-3"><div className="space-y-2 max-h-96 overflow-y-auto">{result.sslResults?.map((r, i) => <ResultCard key={i} {...r} />)}</div></TabsContent>
+            <TabsContent value="headers" className="mt-3"><div className="space-y-2 max-h-96 overflow-y-auto">{result.headerResults?.map((r, i) => <ResultCard key={i} {...r} />)}</div></TabsContent>
+            <TabsContent value="malware" className="mt-3"><div className="space-y-2 max-h-96 overflow-y-auto">{result.malwareResults?.map((r, i) => <ResultCard key={i} {...r} />)}</div></TabsContent>
+            <TabsContent value="breach" className="mt-3"><div className="space-y-2 max-h-96 overflow-y-auto">{result.breachResults?.map((r, i) => <ResultCard key={i} {...r} />)}</div></TabsContent>
+          </Tabs>
+
+          <AIAnalysisCard analysis={result.aiAnalysis || ''} isLoading={false} />
+        </motion.div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
+// Web Vulnerability Scanner Module
+// ============================================================
+interface WebVulnItem { id: string; name: string; severity: string; status: string; description: string; detail: string; results: Array<{ url: string; title: string; snippet: string; domain: string }>; owasp: string; cvss: string; }
+interface WebVulnResult { hostname: string; url: string; threatLevel: string; vulnScore: number; vulnerabilities: WebVulnItem[]; vulnCount: number; criticalCount: number; highCount: number; mediumCount: number; cveResults: Array<{ url: string; title: string; snippet: string; domain: string }>; sqliResults: Array<{ url: string; title: string; snippet: string; domain: string }>; xssResults: Array<{ url: string; title: string; snippet: string; domain: string }>; aiAnalysis: string; }
+
+function WebVulnModule() {
+  const [url, setUrl] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState<WebVulnResult | null>(null);
+  const [error, setError] = useState('');
+  const [expandedVuln, setExpandedVuln] = useState<string | null>(null);
+
+  const scan = useCallback(async () => {
+    if (!url.trim()) return;
+    setLoading(true); setResult(null); setError('');
+    try {
+      const res = await fetch('/api/osint/web-vuln', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: url.trim() }) });
+      const data = await res.json();
+      if (data.error) { setError(data.error); } else { setResult(data as WebVulnResult); }
+    } catch { setError('Network error. Please check your connection and try again.'); }
+    finally { setLoading(false); }
+  }, [url]);
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center gap-3 mb-2">
+        <div className="p-2 rounded-lg bg-red-500/20 border border-red-500/30"><Bug className="w-5 h-5 text-red-400" /></div>
+        <div><h2 className="text-xl font-bold">Web Vulnerability Scanner</h2><p className="text-sm text-muted-foreground">SQLi, XSS, CSRF, directory traversal, CVE & exposed endpoints</p></div>
+      </div>
+
+      <div className="flex gap-3">
+        <div className="relative flex-1">
+          <Globe2 className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <Input placeholder="Enter website URL (e.g., example.com)..." value={url} onChange={(e) => setUrl(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && scan()} className="pl-10 bg-card/50 border-border/50" />
+        </div>
+        <Button onClick={scan} disabled={loading} className="bg-red-600 hover:bg-red-700 text-white min-w-[100px]">
+          {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Scan className="w-4 h-4 mr-2" />}{loading ? 'Scanning' : 'Scan'}
+        </Button>
+      </div>
+
+      {loading && <LoadingIndicator message="Scanning for web vulnerabilities and CVEs..." />}
+      {error && <ErrorCard error={error} />}
+      {result && (
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
+          {/* Threat Level Overview */}
+          <Card className={`border-2 ${result.threatLevel === 'critical' ? 'border-red-600/50 bg-red-600/10' : result.threatLevel === 'high' ? 'border-orange-500/50 bg-orange-500/10' : result.threatLevel === 'medium' ? 'border-amber-500/50 bg-amber-500/10' : 'border-emerald-500/50 bg-emerald-500/10'}`}>
+            <CardContent className="p-6">
+              <div className="flex flex-col md:flex-row items-center gap-6">
+                {/* Vuln Score */}
+                <div className="relative w-32 h-32 flex-shrink-0">
+                  <svg className="w-32 h-32 -rotate-90" viewBox="0 0 120 120">
+                    <circle cx="60" cy="60" r="50" fill="none" className="stroke-border/30" strokeWidth="8" />
+                    <circle cx="60" cy="60" r="50" fill="none" className={result.vulnScore >= 50 ? 'stroke-red-400' : result.vulnScore >= 20 ? 'stroke-amber-400' : 'stroke-emerald-400'} strokeWidth="8"
+                      strokeDasharray={`${(result.vulnScore / 100) * 314} 314`} strokeLinecap="round" />
+                  </svg>
+                  <div className="absolute inset-0 flex flex-col items-center justify-center">
+                    <span className={`text-3xl font-bold ${result.vulnScore >= 50 ? 'text-red-400' : result.vulnScore >= 20 ? 'text-amber-400' : 'text-emerald-400'}`}>{result.vulnScore}</span>
+                    <span className="text-[10px] text-muted-foreground">Vuln Score</span>
+                  </div>
+                </div>
+                {/* Details */}
+                <div className="flex-1 space-y-3">
+                  <div className="flex items-center gap-3">
+                    <ThreatLevelBadge level={result.threatLevel} />
+                  </div>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <div className="p-3 rounded-lg border border-border/30 bg-card/30">
+                      <div className="text-xs text-muted-foreground">Target</div>
+                      <div className="text-sm font-mono font-medium truncate">{result.hostname}</div>
+                    </div>
+                    <div className="p-3 rounded-lg border border-red-500/30 bg-red-500/10">
+                      <div className="text-xs text-muted-foreground">Vulnerabilities</div>
+                      <div className="text-2xl font-bold text-red-400">{result.vulnCount}</div>
+                    </div>
+                    <div className="p-3 rounded-lg border border-orange-500/30 bg-orange-500/10">
+                      <div className="text-xs text-muted-foreground">Critical / High</div>
+                      <div className="text-lg font-bold text-orange-400">{result.criticalCount} / {result.highCount}</div>
+                    </div>
+                    <div className="p-3 rounded-lg border border-amber-500/30 bg-amber-500/10">
+                      <div className="text-xs text-muted-foreground">Medium</div>
+                      <div className="text-lg font-bold text-amber-400">{result.mediumCount}</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Vulnerability List */}
+          <div className="space-y-2">
+            <h3 className="text-sm font-semibold flex items-center gap-2"><Bug className="w-4 h-4 text-red-400" /> Vulnerability Scan Results</h3>
+            {result.vulnerabilities?.map((vuln) => (
+              <motion.div key={vuln.id} initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }}
+                className={`rounded-lg border transition-all cursor-pointer ${vuln.status === 'vulnerable' ? (vuln.severity === 'critical' ? 'border-red-600/50 bg-red-600/5 hover:bg-red-600/10' : vuln.severity === 'high' ? 'border-orange-500/50 bg-orange-500/5 hover:bg-orange-500/10' : 'border-amber-500/50 bg-amber-500/5 hover:bg-amber-500/10') : 'border-border/30 bg-card/20 hover:bg-card/40'}`}
+                onClick={() => setExpandedVuln(expandedVuln === vuln.id ? null : vuln.id)}>
+                <div className="p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      {vuln.status === 'vulnerable' ? <AlertTriangle className={`w-4 h-4 flex-shrink-0 ${vuln.severity === 'critical' ? 'text-red-400' : vuln.severity === 'high' ? 'text-orange-400' : 'text-amber-400'}`} /> : <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0" />}
+                      <div>
+                        <div className="text-sm font-medium">{vuln.name}</div>
+                        <div className="text-[10px] text-muted-foreground">{vuln.owasp} {vuln.cvss !== '0.0' && `• CVSS: ${vuln.cvss}`}</div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      {vuln.status === 'vulnerable' ? <SeverityBadge severity={vuln.severity} /> : <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30 text-xs">Secure</Badge>}
+                      <ChevronRight className={`w-4 h-4 text-muted-foreground transition-transform ${expandedVuln === vuln.id ? 'rotate-90' : ''}`} />
+                    </div>
+                  </div>
+                </div>
+                {expandedVuln === vuln.id && (
+                  <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} className="border-t border-border/30 px-3 py-3">
+                    <p className="text-xs text-muted-foreground mb-2">{vuln.description}</p>
+                    <div className="p-2 rounded border border-border/30 bg-card/30 mb-2">
+                      <div className="text-[10px] text-muted-foreground">Finding</div>
+                      <div className="text-xs">{vuln.detail}</div>
+                    </div>
+                    {vuln.results && vuln.results.length > 0 && (
+                      <div className="space-y-1 max-h-32 overflow-y-auto">
+                        {vuln.results.slice(0, 5).map((r, ri) => (
+                          <div key={ri} className="flex items-start gap-2 p-1.5 rounded border border-border/20 bg-card/20">
+                            <div className="flex-1 min-w-0">
+                              <a href={r.url} target="_blank" rel="noopener noreferrer" className="text-[10px] font-medium text-foreground hover:text-emerald-400 flex items-center gap-1">
+                                <span className="truncate">{r.title}</span>
+                                <ExternalLink className="w-2 h-2 flex-shrink-0" />
+                              </a>
+                              <p className="text-[9px] text-muted-foreground line-clamp-1">{r.snippet}</p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </motion.div>
+                )}
+              </motion.div>
+            ))}
+          </div>
+
+          {/* Results Tabs */}
+          <Tabs defaultValue="cve">
+            <TabsList className="bg-card/50 flex-wrap">
+              <TabsTrigger value="cve" className="data-[state=active]:bg-red-500/20 data-[state=active]:text-red-400"><AlertTriangle className="w-3 h-3 mr-1" /> CVE ({result.cveResults?.length || 0})</TabsTrigger>
+              <TabsTrigger value="sqli" className="data-[state=active]:bg-orange-500/20 data-[state=active]:text-orange-400"><Database className="w-3 h-3 mr-1" /> SQLi ({result.sqliResults?.length || 0})</TabsTrigger>
+              <TabsTrigger value="xss" className="data-[state=active]:bg-amber-500/20 data-[state=active]:text-amber-400"><Code className="w-3 h-3 mr-1" /> XSS ({result.xssResults?.length || 0})</TabsTrigger>
+            </TabsList>
+            <TabsContent value="cve" className="mt-3"><div className="space-y-2 max-h-96 overflow-y-auto">{result.cveResults?.map((r, i) => <ResultCard key={i} {...r} />)}</div></TabsContent>
+            <TabsContent value="sqli" className="mt-3"><div className="space-y-2 max-h-96 overflow-y-auto">{result.sqliResults?.map((r, i) => <ResultCard key={i} {...r} />)}</div></TabsContent>
+            <TabsContent value="xss" className="mt-3"><div className="space-y-2 max-h-96 overflow-y-auto">{result.xssResults?.map((r, i) => <ResultCard key={i} {...r} />)}</div></TabsContent>
+          </Tabs>
+
+          <AIAnalysisCard analysis={result.aiAnalysis || ''} isLoading={false} />
+        </motion.div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
 // AI Chat Module
 // ============================================================
 function AIChatModule() {
@@ -1723,6 +2071,8 @@ export default function OSINTApp() {
       case 'dns': return <DNSModule />;
       case 'nik': return <NIKModule />;
       case 'ktptrack': return <KTPTrackModule />;
+      case 'websec': return <WebSecModule />;
+      case 'webvuln': return <WebVulnModule />;
       case 'aichat': return <AIChatModule />;
       default: return <DashboardModule />;
     }
