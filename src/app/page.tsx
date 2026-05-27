@@ -224,7 +224,7 @@ function useOSINTSearch<T>() {
   const [result, setResult] = useState<T | null>(null);
   const [error, setError] = useState('');
 
-  const search = useCallback(async (url: string, body: Record<string, string>) => {
+  const search = useCallback(async (url: string, body: Record<string, unknown>) => {
     setLoading(true); setResult(null); setError('');
     try {
       const res = await fetchWithTimeout(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
@@ -1270,12 +1270,12 @@ function WifiScanModule() {
   }, []);
 
   const doSearch = useCallback((method: 'gps' | 'ip' | 'manual') => {
-    const body: Record<string, string | number | boolean> = {};
+    const body: Record<string, unknown> = {};
     if (method === 'gps' && gpsCoords) { body.lat = gpsCoords.lat; body.lng = gpsCoords.lng; body.connectedSSID = connectedSSID; }
     else if (method === 'ip') { body.useIpLocation = true; body.connectedSSID = connectedSSID; }
     else if (method === 'manual' && location.trim()) { body.location = location.trim(); body.connectedSSID = connectedSSID; }
     else { body.useIpLocation = true; body.connectedSSID = connectedSSID; }
-    search('/api/osint/wifi-scan', body as Record<string, string>);
+    search('/api/osint/wifi-scan', body);
   }, [location, connectedSSID, gpsCoords, search]);
 
   const handleScan = useCallback(() => {
@@ -1778,11 +1778,11 @@ interface ImeiResult {
   decomposition: { tac: string; fac: string; tacFull: string; serialNumber: string; checkDigit: string };
   tacInfo: { typeAllocationCode: string; tacCore: string; finalAssemblyCode: string; reportingBody: string; brandFromTAC: string; countryFromTAC: string; tacConfidence: string };
   deviceInfo: { brand: string; model: string; deviceType: string; os: string; detectedModels: string[] };
-  locationIntelligence: { carrier: string; region: string; network: string; reportingBody: string; tacOrigin: string; details: string };
-  stolenLostStatus: { isStolenOrLost: boolean; safetyStatus: string; reports: Array<{ type: string; severity: string; source: string; description: string; url: string }>; reportCount: number };
+  locationIntelligence: { carrier: string; region: string; network: string; reportingBody: string; tacOrigin: string; details: Array<{ source: string; info: string }> };
+  stolenLostStatus: { isStolenOrLost: boolean; safetyStatus: string; reports: Array<{ status: string; source: string; description: string; url: string }>; reportCount: number };
   dataLeaks: Array<{ type: string; severity: string; source: string; description: string; url: string }>;
   leakCount: number;
-  searchResults: Array<{ url: string; title: string; snippet: string; domain: string }>;
+  searchResults: Array<{ url: string; title: string; snippet: string; domain: string; category?: string }>;
   aiAnalysis: string;
 }
 
@@ -1900,7 +1900,7 @@ function ImeiModule() {
                   {result.stolenLostStatus.reportCount > 0 && <span className="text-sm text-muted-foreground">({result.stolenLostStatus.reportCount} laporan)</span>}
                 </div>
                 {result.stolenLostStatus.reports?.length > 0 && (
-                  <div className="space-y-1 mt-2">{result.stolenLostStatus.reports.map((r, i) => <div key={i} className="text-xs"><SeverityBadge severity={r.severity} /> {r.description}</div>)}</div>
+                  <div className="space-y-1 mt-2">{result.stolenLostStatus.reports.map((r, i) => <div key={i} className="text-xs"><Badge variant="outline" className="text-[9px]">{r.status}</Badge> {r.description}</div>)}</div>
                 )}
               </CardContent>
             </Card>
@@ -2582,10 +2582,10 @@ function PhoneDevModule() {
 // ============================================================
 interface PhoneLocResult {
   success: boolean; phone: string; cleaned: string; countryCode: string; country: string;
-  location: { region: string; city: string; province: string; fullAddress: string; latitude: number; longitude: number; accuracy: string; locationConfidence: string; locationDescription: string; nearbyLandmarks: string[]; mapUrl: string; openStreetMapUrl: string };
-  areaInfo: Array<{ url: string; title: string; snippet: string; domain: string }>;
+  location: { region: string | null; city: string | null; province: string | null; fullAddress: string | null; latitude: number | null; longitude: number | null; accuracy: string; locationConfidence: string; locationDescription: string | null; nearbyLandmarks: string[]; mapUrl: string | null; openStreetMapUrl: string | null };
+  areaInfo: Array<{ title: string; snippet: string; url: string; source: string }>;
   carrierInfo: { carrier: string; type: string; network: string; mcc: string; mnc: string; region: string; timezone: string; country: string; countryCode: string };
-  ipInfo: { estimatedIP: string; ispProvider: string; networkType: string; cellTowerInfo: string; estimatedIPRange: string };
+  ipInfo: { estimatedIP: string | null; ispProvider: string; networkType: string; cellTowerInfo: string | null; estimatedIPRange: string | null };
   locationResults: Array<{ url: string; title: string; snippet: string; domain: string }>;
   ipResults: Array<{ url: string; title: string; snippet: string; domain: string }>;
   operatorResults: Array<{ url: string; title: string; snippet: string; domain: string }>;
@@ -2622,14 +2622,14 @@ function PhoneLocModule() {
             <>
               <Card className="border-rose-500/30 bg-rose-500/5">
                 <CardContent className="p-4">
-                  <div className="flex items-center gap-2 mb-2"><MapPin className="w-5 h-5 text-rose-400" /><div className="text-lg font-bold">{result.location.fullAddress || 'Location Found'}</div></div>
+                  <div className="flex items-center gap-2 mb-2"><MapPin className="w-5 h-5 text-rose-400" /><div className="text-lg font-bold">{result.location.fullAddress || result.location.city || 'Location Found'}</div></div>
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                    <div><div className="text-xs text-muted-foreground">City</div><div className="text-sm font-medium">{result.location.city}</div></div>
-                    <div><div className="text-xs text-muted-foreground">Province</div><div className="text-sm font-medium">{result.location.province}</div></div>
-                    <div><div className="text-xs text-muted-foreground">Confidence</div><div className="text-sm font-medium">{result.location.locationConfidence}</div></div>
-                    <div><div className="text-xs text-muted-foreground">Accuracy</div><div className="text-sm font-medium">{result.location.accuracy}</div></div>
+                    <div><div className="text-xs text-muted-foreground">City</div><div className="text-sm font-medium">{result.location.city || 'N/A'}</div></div>
+                    <div><div className="text-xs text-muted-foreground">Province</div><div className="text-sm font-medium">{result.location.province || 'N/A'}</div></div>
+                    <div><div className="text-xs text-muted-foreground">Confidence</div><div className="text-sm font-medium">{result.location.locationConfidence || 'N/A'}</div></div>
+                    <div><div className="text-xs text-muted-foreground">Accuracy</div><div className="text-sm font-medium">{result.location.accuracy || 'N/A'}</div></div>
                   </div>
-                  {result.location.nearbyLandmarks?.length > 0 && <div className="flex flex-wrap gap-1 mt-2">{result.location.nearbyLandmarks.map((l, i) => <Badge key={i} variant="outline" className="text-xs">{l}</Badge>)}</div>}
+                  {result.location.nearbyLandmarks && result.location.nearbyLandmarks.length > 0 && <div className="flex flex-wrap gap-1 mt-2">{result.location.nearbyLandmarks.map((l, i) => <Badge key={i} variant="outline" className="text-xs">{l}</Badge>)}</div>}
                 </CardContent>
               </Card>
               {result.location.latitude && result.location.longitude && (
