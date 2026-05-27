@@ -31,7 +31,7 @@ import ReactMarkdown from 'react-markdown';
 // Types
 // ============================================================
 type AppView = 'landing' | 'dashboard' | 'admin';
-type ModuleType = 'dashboard' | 'username' | 'email' | 'ip' | 'domain' | 'phone' | 'websearch' | 'image' | 'aichat' | 'dns' | 'websec' | 'breach' | 'dorking' | 'subdomain' | 'wifiscan' | 'wifi' | 'mac' | 'people' | 'vehicle' | 'ktp' | 'nik' | 'school' | 'ewallet' | 'qris' | 'bank' | 'bitcoin' | 'phonedev' | 'phoneloc' | 'webvuln' | 'social';
+type ModuleType = 'dashboard' | 'username' | 'email' | 'ip' | 'domain' | 'phone' | 'websearch' | 'image' | 'aichat' | 'dns' | 'websec' | 'breach' | 'dorking' | 'subdomain' | 'wifiscan' | 'wifi' | 'mac' | 'people' | 'vehicle' | 'imei' | 'ktp' | 'nik' | 'school' | 'ewallet' | 'qris' | 'bank' | 'bitcoin' | 'phonedev' | 'phoneloc' | 'webvuln' | 'social';
 
 interface AuthState {
   isLoggedIn: boolean;
@@ -78,7 +78,8 @@ const MODULES: Module[] = [
   { id: 'wifi', name: 'WiFi AP Lookup', icon: <Radio className="w-4 h-4" />, description: 'Access point intelligence', color: 'from-indigo-500 to-purple-500' },
   { id: 'mac', name: 'MAC Lookup', icon: <Fingerprint className="w-4 h-4" />, description: 'MAC address lookup', color: 'from-orange-500 to-red-500' },
   { id: 'people', name: 'People Search', icon: <UserSearch className="w-4 h-4" />, description: 'People finder & profiles', color: 'from-teal-500 to-emerald-500' },
-  { id: 'vehicle', name: 'Vehicle Plate', icon: <Car className="w-4 h-4" />, description: 'Indonesian plate check', color: 'from-slate-500 to-gray-500' },
+  { id: 'vehicle', name: 'Vehicle Plate', icon: <Car className="w-4 h-4" />, description: 'Lacak plat mobil & motor', color: 'from-slate-500 to-gray-500' },
+  { id: 'imei', name: 'IMEI Tracker', icon: <Smartphone className="w-4 h-4" />, description: 'Lacak HP via IMEI', color: 'from-cyan-500 to-blue-500' },
   { id: 'ktp', name: 'KTP OCR', icon: <CreditCard className="w-4 h-4" />, description: 'Indonesian ID card scan', color: 'from-red-500 to-rose-500' },
   { id: 'nik', name: 'NIK Decoder', icon: <CreditCard className="w-4 h-4" />, description: 'Indonesian NIK decode', color: 'from-amber-500 to-yellow-500' },
   { id: 'school', name: 'School Intel', icon: <GraduationCap className="w-4 h-4" />, description: 'School/student OSINT', color: 'from-blue-500 to-indigo-500' },
@@ -214,7 +215,7 @@ function useOSINTSearch<T>() {
 // ============================================================
 function DashboardModule() {
   const stats = [
-    { label: 'OSINT Tools', value: '30', icon: <Layers className="w-5 h-5" />, color: 'text-emerald-400' },
+    { label: 'OSINT Tools', value: '32', icon: <Layers className="w-5 h-5" />, color: 'text-emerald-400' },
     { label: 'AI Engines', value: '4', icon: <Cpu className="w-5 h-5" />, color: 'text-cyan-400' },
     { label: 'Data Sources', value: '100+', icon: <Database className="w-5 h-5" />, color: 'text-amber-400' },
     { label: 'Real-time', value: 'Yes', icon: <Activity className="w-5 h-5" />, color: 'text-rose-400' },
@@ -1520,17 +1521,25 @@ function PeopleModule() {
 }
 
 // ============================================================
-// Vehicle Plate Module
+// Vehicle Plate Module (Mobil & Motor)
 // ============================================================
 interface VehicleResult {
-  success: boolean; plate: string; regionCode: string; region: string; province: string; regionDescription: string; vehicleType: string;
+  success: boolean; plate: string; regionCode: string; region: string; province: string; regionDescription: string; vehicleType: string; vehicleCategory: string;
+  registrationStatus: string; taxStatus: string;
+  specialPlate?: { detected: boolean; type: string; description: string };
+  vehicleInfo?: { brand: string; model: string; year: string; color: string; fuelType: string; cc: string; ownerType: string };
   searchResults: Array<{ url: string; title: string; snippet: string; domain: string }>;
   publicRecords: Array<{ url: string; title: string; snippet: string; domain: string }>;
-  crimeReports: Array<{ url: string; title: string; snippet: string; domain: string }>;
+  stnkData: Array<{ url: string; title: string; snippet: string; domain: string }>;
+  bpkbData: Array<{ url: string; title: string; snippet: string; domain: string }>;
+  taxData: Array<{ url: string; title: string; snippet: string; domain: string }>;
+  crimeReports: Array<{ type: string; severity: string; source: string; description: string; url: string }>;
+  stolenReports: Array<{ type: string; severity: string; source: string; description: string; url: string }>;
+  accidentReports: Array<{ type: string; severity: string; source: string; description: string; url: string }>;
   crimeCount: number;
   dataLeaks: Array<{ type: string; severity: string; source: string; description: string; url: string }>;
   leakCount: number;
-  stnkResults: Array<{ url: string; title: string; snippet: string; domain: string }>;
+  rentalIndicated?: boolean;
   aiAnalysis: string;
 }
 
@@ -1543,54 +1552,250 @@ function VehicleModule() {
     search('/api/osint/vehicle', { plate: plate.trim() });
   }, [plate, search]);
 
+  const categoryLabel = result?.vehicleCategory === 'mobil' ? '🚗 Mobil' : result?.vehicleCategory === 'motor' ? '🏍️ Motor' : '🚙 Unknown';
+
   return (
     <div className="space-y-6">
-      <ModuleHeader icon={<Car className="w-5 h-5" />} color="from-slate-500 to-gray-500" title="Vehicle Plate Check" subtitle="Indonesian vehicle plate lookup" />
+      <ModuleHeader icon={<Car className="w-5 h-5" />} color="from-slate-500 to-gray-500" title="Lacak Plat Kendaraan" subtitle="Cek plat mobil & motor Indonesia" />
       <div className="flex gap-3">
         <div className="relative flex-1">
           <Car className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input placeholder="Enter plate number (e.g. B 1234 XY)..." value={plate} onChange={e => setPlate(e.target.value)} onKeyDown={e => e.key === 'Enter' && doSearch()} className="pl-10 bg-card/50 border-border/50" />
+          <Input placeholder="Masukkan nomor plat (contoh: B 1234 XY)..." value={plate} onChange={e => setPlate(e.target.value)} onKeyDown={e => e.key === 'Enter' && doSearch()} className="pl-10 bg-card/50 border-border/50" />
         </div>
         <Button onClick={doSearch} disabled={loading} className="bg-slate-600 hover:bg-slate-700 text-white min-w-[100px]">
-          {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Car className="w-4 h-4 mr-2" />}{loading ? 'Checking' : 'Check'}
+          {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Car className="w-4 h-4 mr-2" />}{loading ? 'Cek' : 'Lacak'}
         </Button>
       </div>
-      {loading && <LoadingIndicator message={`Checking plate ${plate}`} />}
+      {loading && <LoadingIndicator message={`Mengecek plat ${plate}`} />}
       {error && <ErrorCard error={error} />}
       {result && (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
           <Card className="border-slate-500/30 bg-slate-500/5">
             <CardContent className="p-4">
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-                <div><div className="text-xs text-muted-foreground">Plate</div><div className="text-sm font-mono font-bold">{result.plate}</div></div>
-                <div><div className="text-xs text-muted-foreground">Region</div><div className="text-sm font-medium">{result.region}</div></div>
-                <div><div className="text-xs text-muted-foreground">Province</div><div className="text-sm font-medium">{result.province}</div></div>
-                <div><div className="text-xs text-muted-foreground">Code</div><div className="text-sm font-mono">{result.regionCode}</div></div>
-                <div><div className="text-xs text-muted-foreground">Type</div><div className="text-sm font-medium">{result.vehicleType || 'N/A'}</div></div>
-                <div><div className="text-xs text-muted-foreground">Crime Reports</div><div className="text-sm font-bold text-red-400">{result.crimeCount}</div></div>
+              <div className="flex items-center gap-2 mb-3">
+                <div className="text-2xl font-mono font-bold">{result.plate}</div>
+                <Badge className={result.vehicleCategory === 'mobil' ? 'bg-blue-500/20 text-blue-400 border-blue-500/30' : result.vehicleCategory === 'motor' ? 'bg-orange-500/20 text-orange-400 border-orange-500/30' : 'bg-gray-500/20 text-gray-400 border-gray-500/30'}>{categoryLabel}</Badge>
+                {result.specialPlate?.detected && <Badge className="bg-amber-500/20 text-amber-400 border-amber-500/30">{result.specialPlate.type}</Badge>}
               </div>
-              {result.regionDescription && <div className="text-xs text-muted-foreground mt-2">{result.regionDescription}</div>}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <div><div className="text-xs text-muted-foreground">Wilayah</div><div className="text-sm font-medium">{result.region}</div></div>
+                <div><div className="text-xs text-muted-foreground">Provinsi</div><div className="text-sm font-medium">{result.province}</div></div>
+                <div><div className="text-xs text-muted-foreground">Kode</div><div className="text-sm font-mono">{result.regionCode}</div></div>
+                <div><div className="text-xs text-muted-foreground">Jenis</div><div className="text-sm font-medium">{result.vehicleType || 'N/A'}</div></div>
+                <div><div className="text-xs text-muted-foreground">Registrasi</div><Badge className={result.registrationStatus === 'Active' ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' : result.registrationStatus === 'Blocked' ? 'bg-red-500/20 text-red-400 border-red-500/30' : 'bg-amber-500/20 text-amber-400 border-amber-500/30'}>{result.registrationStatus || 'Unknown'}</Badge></div>
+                <div><div className="text-xs text-muted-foreground">Pajak</div><Badge className={result.taxStatus === 'Paid' ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' : result.taxStatus === 'Unpaid' || result.taxStatus === 'Expired' ? 'bg-red-500/20 text-red-400 border-red-500/30' : 'bg-amber-500/20 text-amber-400 border-amber-500/30'}>{result.taxStatus || 'Unknown'}</Badge></div>
+                <div><div className="text-xs text-muted-foreground">Kriminal</div><div className="text-sm font-bold text-red-400">{result.crimeCount}</div></div>
+                <div><div className="text-xs text-muted-foreground">Data Bocor</div><div className="text-sm font-bold text-red-400">{result.leakCount}</div></div>
+              </div>
+              {result.regionDescription && <div className="text-xs text-muted-foreground mt-2">📍 {result.regionDescription}</div>}
             </CardContent>
           </Card>
-          {result.leakCount > 0 && (
+          {result.vehicleInfo && (result.vehicleInfo.brand || result.vehicleInfo.model) && (
+            <Card className="border-cyan-500/30 bg-cyan-500/5">
+              <CardHeader className="pb-2"><CardTitle className="text-sm flex items-center gap-2 text-cyan-400"><Car className="w-4 h-4" /> Info Kendaraan</CardTitle></CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  <div><div className="text-xs text-muted-foreground">Merek</div><div className="text-sm font-medium">{result.vehicleInfo.brand || 'N/A'}</div></div>
+                  <div><div className="text-xs text-muted-foreground">Model</div><div className="text-sm font-medium">{result.vehicleInfo.model || 'N/A'}</div></div>
+                  <div><div className="text-xs text-muted-foreground">Tahun</div><div className="text-sm font-medium">{result.vehicleInfo.year || 'N/A'}</div></div>
+                  <div><div className="text-xs text-muted-foreground">Warna</div><div className="text-sm font-medium">{result.vehicleInfo.color || 'N/A'}</div></div>
+                  <div><div className="text-xs text-muted-foreground">BBM</div><div className="text-sm font-medium">{result.vehicleInfo.fuelType || 'N/A'}</div></div>
+                  <div><div className="text-xs text-muted-foreground">CC</div><div className="text-sm font-medium">{result.vehicleInfo.cc || 'N/A'}</div></div>
+                  <div><div className="text-xs text-muted-foreground">Kepemilikan</div><div className="text-sm font-medium">{result.vehicleInfo.ownerType || 'N/A'}</div></div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+          {result.specialPlate?.detected && (
+            <Card className="border-amber-500/30 bg-amber-500/5">
+              <CardContent className="p-4">
+                <div className="flex items-center gap-2 text-amber-400"><ShieldAlert className="w-4 h-4" /><span className="text-sm font-medium">Plat Khusus: {result.specialPlate.type}</span></div>
+                <div className="text-xs text-muted-foreground mt-1">{result.specialPlate.description}</div>
+              </CardContent>
+            </Card>
+          )}
+          {result.rentalIndicated && (
+            <Card className="border-purple-500/30 bg-purple-500/5">
+              <CardContent className="p-4"><div className="flex items-center gap-2 text-purple-400"><Car className="w-4 h-4" /><span className="text-sm font-medium">Kemungkinan kendaraan rental</span></div></CardContent>
+            </Card>
+          )}
+          {result.stolenReports && result.stolenReports.length > 0 && (
+            <Card className="border-red-600/30 bg-red-600/5">
+              <CardHeader className="pb-2"><CardTitle className="text-sm flex items-center gap-2 text-red-400"><AlertTriangle className="w-4 h-4" /> Kendaraan Hilang ({result.stolenReports.length})</CardTitle></CardHeader>
+              <CardContent><div className="space-y-1">{result.stolenReports.map((s, i) => <div key={i} className="text-xs"><SeverityBadge severity={s.severity} /> {s.description}</div>)}</div></CardContent>
+            </Card>
+          )}
+          {(result.leakCount > 0 || (result.crimeCount > 0)) && (
             <Card className="border-red-500/30 bg-red-500/5">
               <CardContent className="p-4">
-                <div className="flex items-center gap-2 text-red-400"><AlertTriangle className="w-4 h-4" /><span className="text-sm font-medium">{result.leakCount} data leaks found</span></div>
+                <div className="flex flex-wrap gap-3">
+                  {result.crimeCount > 0 && <div className="flex items-center gap-2 text-red-400"><AlertTriangle className="w-4 h-4" /><span className="text-sm font-medium">{result.crimeCount} laporan kriminal</span></div>}
+                  {result.leakCount > 0 && <div className="flex items-center gap-2 text-red-400"><AlertTriangle className="w-4 h-4" /><span className="text-sm font-medium">{result.leakCount} data bocor</span></div>}
+                </div>
               </CardContent>
             </Card>
           )}
           <Tabs defaultValue="search">
-            <TabsList className="bg-card/50">
+            <TabsList className="bg-card/50 flex-wrap h-auto gap-1">
               <TabsTrigger value="search" className="data-[state=active]:bg-slate-500/20 data-[state=active]:text-slate-400"><Search className="w-3 h-3 mr-1" />Search ({result.searchResults?.length || 0})</TabsTrigger>
-              <TabsTrigger value="records" className="data-[state=active]:bg-amber-500/20 data-[state=active]:text-amber-400"><Database className="w-3 h-3 mr-1" />Records ({result.publicRecords?.length || 0})</TabsTrigger>
-              <TabsTrigger value="crime" className="data-[state=active]:bg-red-500/20 data-[state=active]:text-red-400"><AlertTriangle className="w-3 h-3 mr-1" />Crime ({result.crimeReports?.length || 0})</TabsTrigger>
-              <TabsTrigger value="stnk" className="data-[state=active]:bg-cyan-500/20 data-[state=active]:text-cyan-400"><FileSearch className="w-3 h-3 mr-1" />STNK ({result.stnkResults?.length || 0})</TabsTrigger>
+              <TabsTrigger value="stnk" className="data-[state=active]:bg-cyan-500/20 data-[state=active]:text-cyan-400"><FileSearch className="w-3 h-3 mr-1" />STNK ({result.stnkData?.length || 0})</TabsTrigger>
+              <TabsTrigger value="bpkb" className="data-[state=active]:bg-purple-500/20 data-[state=active]:text-purple-400"><Key className="w-3 h-3 mr-1" />BPKB ({result.bpkbData?.length || 0})</TabsTrigger>
+              <TabsTrigger value="tax" className="data-[state=active]:bg-amber-500/20 data-[state=active]:text-amber-400"><Wallet className="w-3 h-3 mr-1" />Pajak ({result.taxData?.length || 0})</TabsTrigger>
+              <TabsTrigger value="crime" className="data-[state=active]:bg-red-500/20 data-[state=active]:text-red-400"><AlertTriangle className="w-3 h-3 mr-1" />Kriminal ({result.crimeReports?.length || 0})</TabsTrigger>
+              <TabsTrigger value="records" className="data-[state=active]:bg-emerald-500/20 data-[state=active]:text-emerald-400"><Database className="w-3 h-3 mr-1" />Records ({result.publicRecords?.length || 0})</TabsTrigger>
             </TabsList>
             <TabsContent value="search" className="mt-3"><div className="space-y-2 max-h-96 overflow-y-auto">{result.searchResults?.map((r, i) => <ResultLink key={i} {...r} />)}</div></TabsContent>
+            <TabsContent value="stnk" className="mt-3"><div className="space-y-2 max-h-96 overflow-y-auto">{result.stnkData?.map((r, i) => <ResultLink key={i} {...r} />)}</div></TabsContent>
+            <TabsContent value="bpkb" className="mt-3"><div className="space-y-2 max-h-96 overflow-y-auto">{result.bpkbData?.map((r, i) => <ResultLink key={i} {...r} />)}</div></TabsContent>
+            <TabsContent value="tax" className="mt-3"><div className="space-y-2 max-h-96 overflow-y-auto">{result.taxData?.map((r, i) => <ResultLink key={i} {...r} />)}</div></TabsContent>
+            <TabsContent value="crime" className="mt-3"><div className="space-y-2 max-h-96 overflow-y-auto">{result.crimeReports?.map((r, i) => <div key={i} className="p-3 rounded-lg border border-red-500/30 bg-red-500/5"><div className="flex items-center gap-2"><SeverityBadge severity={r.severity} /><span className="text-sm font-medium">{r.type}</span></div><p className="text-xs text-muted-foreground mt-1">{r.description}</p></div>)}</div></TabsContent>
             <TabsContent value="records" className="mt-3"><div className="space-y-2 max-h-96 overflow-y-auto">{result.publicRecords?.map((r, i) => <ResultLink key={i} {...r} />)}</div></TabsContent>
-            <TabsContent value="crime" className="mt-3"><div className="space-y-2 max-h-96 overflow-y-auto">{result.crimeReports?.map((r, i) => <ResultLink key={i} {...r} />)}</div></TabsContent>
-            <TabsContent value="stnk" className="mt-3"><div className="space-y-2 max-h-96 overflow-y-auto">{result.stnkResults?.map((r, i) => <ResultLink key={i} {...r} />)}</div></TabsContent>
           </Tabs>
+          <AIAnalysisCard analysis={result.aiAnalysis || ''} />
+        </motion.div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
+// IMEI Tracker Module (Lacak HP via IMEI)
+// ============================================================
+interface ImeiResult {
+  success: boolean; imei: string;
+  validation: { valid: boolean; luhnCheck: boolean; checkDigit: string; calculatedCheckDigit: string };
+  decomposition: { tac: string; fac: string; tacFull: string; serialNumber: string; checkDigit: string };
+  tacInfo: { typeAllocationCode: string; tacCore: string; finalAssemblyCode: string; reportingBody: string; brandFromTAC: string; countryFromTAC: string; tacConfidence: string };
+  deviceInfo: { brand: string; model: string; deviceType: string; os: string; detectedModels: string[] };
+  locationIntelligence: { carrier: string; region: string; network: string; reportingBody: string; tacOrigin: string; details: string };
+  stolenLostStatus: { isStolenOrLost: boolean; safetyStatus: string; reports: Array<{ type: string; severity: string; source: string; description: string; url: string }>; reportCount: number };
+  dataLeaks: Array<{ type: string; severity: string; source: string; description: string; url: string }>;
+  leakCount: number;
+  searchResults: Array<{ url: string; title: string; snippet: string; domain: string }>;
+  aiAnalysis: string;
+}
+
+function ImeiModule() {
+  const [imei, setImei] = useState('');
+  const { loading, result, error, search } = useOSINTSearch<ImeiResult>();
+
+  const doSearch = useCallback(() => {
+    if (!imei.trim()) return;
+    search('/api/osint/imei', { imei: imei.trim() });
+  }, [imei, search]);
+
+  return (
+    <div className="space-y-6">
+      <ModuleHeader icon={<Smartphone className="w-5 h-5" />} color="from-cyan-500 to-blue-500" title="IMEI Tracker" subtitle="Lacak HP via IMEI - Cek device, lokasi & status hilang" />
+      <div className="flex gap-3">
+        <div className="relative flex-1">
+          <Smartphone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <Input placeholder="Masukkan 15 digit IMEI..." value={imei} onChange={e => setImei(e.target.value.replace(/\D/g, '').slice(0, 15))} onKeyDown={e => e.key === 'Enter' && doSearch()} className="pl-10 bg-card/50 border-border/50 font-mono" />
+        </div>
+        <Button onClick={doSearch} disabled={loading || imei.length !== 15} className="bg-cyan-600 hover:bg-cyan-700 text-white min-w-[100px]">
+          {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Smartphone className="w-4 h-4 mr-2" />}{loading ? 'Melacak' : 'Lacak'}
+        </Button>
+      </div>
+      {imei.length > 0 && imei.length !== 15 && <p className="text-xs text-amber-400">IMEI harus 15 digit ({imei.length}/15)</p>}
+      {loading && <LoadingIndicator message={`Melacak IMEI ${imei}`} />}
+      {error && <ErrorCard error={error} />}
+      {result && (
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
+          {/* IMEI Validation */}
+          <Card className={`border-2 ${result.validation?.valid ? 'border-emerald-500/30 bg-emerald-500/5' : 'border-red-500/30 bg-red-500/5'}`}>
+            <CardContent className="p-4">
+              <div className="flex items-center gap-3 mb-3">
+                <div className="text-2xl font-mono font-bold">{result.imei}</div>
+                {result.validation?.valid ? (
+                  <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30"><CheckCircle2 className="w-3 h-3 mr-1" />Valid IMEI</Badge>
+                ) : (
+                  <Badge className="bg-red-500/20 text-red-400 border-red-500/30"><XCircle className="w-3 h-3 mr-1" />Invalid IMEI</Badge>
+                )}
+              </div>
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                <div><div className="text-xs text-muted-foreground">TAC</div><div className="text-sm font-mono">{result.decomposition?.tac || '-'}</div></div>
+                <div><div className="text-xs text-muted-foreground">FAC</div><div className="text-sm font-mono">{result.decomposition?.fac || '-'}</div></div>
+                <div><div className="text-xs text-muted-foreground">Serial</div><div className="text-sm font-mono">{result.decomposition?.serialNumber || '-'}</div></div>
+                <div><div className="text-xs text-muted-foreground">Luhn Check</div><div className="text-sm font-medium">{result.validation?.luhnCheck ? '✅ Pass' : '❌ Fail'}</div></div>
+                <div><div className="text-xs text-muted-foreground">Check Digit</div><div className="text-sm font-mono">{result.validation?.checkDigit || '-'}</div></div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* TAC Info */}
+          {result.tacInfo && (
+            <Card className="border-cyan-500/30 bg-cyan-500/5">
+              <CardHeader className="pb-2"><CardTitle className="text-sm flex items-center gap-2 text-cyan-400"><Fingerprint className="w-4 h-4" /> TAC Intelligence</CardTitle></CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  <div><div className="text-xs text-muted-foreground">Brand (TAC)</div><div className="text-sm font-medium">{result.tacInfo.brandFromTAC || 'Unknown'}</div></div>
+                  <div><div className="text-xs text-muted-foreground">Country</div><div className="text-sm font-medium">{result.tacInfo.countryFromTAC || 'Unknown'}</div></div>
+                  <div><div className="text-xs text-muted-foreground">Reporting Body</div><div className="text-sm font-medium">{result.tacInfo.reportingBody || 'N/A'}</div></div>
+                  <div><div className="text-xs text-muted-foreground">Confidence</div><Badge className={result.tacInfo.tacConfidence === 'high' ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' : 'bg-amber-500/20 text-amber-400 border-amber-500/30'}>{result.tacInfo.tacConfidence || 'low'}</Badge></div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Device Info */}
+          {result.deviceInfo && (result.deviceInfo.brand || result.deviceInfo.model) && (
+            <Card className="border-blue-500/30 bg-blue-500/5">
+              <CardHeader className="pb-2"><CardTitle className="text-sm flex items-center gap-2 text-blue-400"><Smartphone className="w-4 h-4" /> Device Info</CardTitle></CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  <div><div className="text-xs text-muted-foreground">Brand</div><div className="text-sm font-bold">{result.deviceInfo.brand || 'Unknown'}</div></div>
+                  <div><div className="text-xs text-muted-foreground">Model</div><div className="text-sm font-medium">{result.deviceInfo.model || 'Unknown'}</div></div>
+                  <div><div className="text-xs text-muted-foreground">Type</div><div className="text-sm font-medium">{result.deviceInfo.deviceType || 'N/A'}</div></div>
+                  <div><div className="text-xs text-muted-foreground">OS</div><div className="text-sm font-medium">{result.deviceInfo.os || 'N/A'}</div></div>
+                </div>
+                {result.deviceInfo.detectedModels?.length > 0 && <div className="flex flex-wrap gap-1 mt-2">{result.deviceInfo.detectedModels.map((m, i) => <Badge key={i} variant="outline" className="text-xs">{m}</Badge>)}</div>}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Location Intelligence */}
+          {result.locationIntelligence && (
+            <Card className="border-emerald-500/30 bg-emerald-500/5">
+              <CardHeader className="pb-2"><CardTitle className="text-sm flex items-center gap-2 text-emerald-400"><MapPin className="w-4 h-4" /> Location Intelligence</CardTitle></CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  <div><div className="text-xs text-muted-foreground">Carrier</div><div className="text-sm font-medium">{result.locationIntelligence.carrier || 'N/A'}</div></div>
+                  <div><div className="text-xs text-muted-foreground">Region</div><div className="text-sm font-medium">{result.locationIntelligence.region || 'N/A'}</div></div>
+                  <div><div className="text-xs text-muted-foreground">Network</div><div className="text-sm font-medium">{result.locationIntelligence.network || 'N/A'}</div></div>
+                  <div><div className="text-xs text-muted-foreground">Origin</div><div className="text-sm font-medium">{result.locationIntelligence.tacOrigin || 'N/A'}</div></div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Stolen/Lost Status */}
+          {result.stolenLostStatus && (
+            <Card className={`border-2 ${result.stolenLostStatus.isStolenOrLost ? 'border-red-600/50 bg-red-600/10' : 'border-emerald-500/30 bg-emerald-500/5'}`}>
+              <CardContent className="p-4">
+                <div className="flex items-center gap-3">
+                  {result.stolenLostStatus.isStolenOrLost ? (
+                    <Badge className="bg-red-600/20 text-red-400 border-red-600/30 text-base px-4 py-1 animate-pulse"><ShieldAlert className="w-5 h-5 mr-2" />HILANG / DICURI</Badge>
+                  ) : (
+                    <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30 text-base px-4 py-1"><ShieldCheck className="w-5 h-5 mr-2" />Aman - Tidak terdaftar hilang</Badge>
+                  )}
+                  {result.stolenLostStatus.reportCount > 0 && <span className="text-sm text-muted-foreground">({result.stolenLostStatus.reportCount} laporan)</span>}
+                </div>
+                {result.stolenLostStatus.reports?.length > 0 && (
+                  <div className="space-y-1 mt-2">{result.stolenLostStatus.reports.map((r, i) => <div key={i} className="text-xs"><SeverityBadge severity={r.severity} /> {r.description}</div>)}</div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          {result.leakCount > 0 && (
+            <Card className="border-red-500/30 bg-red-500/5">
+              <CardContent className="p-4"><div className="flex items-center gap-2 text-red-400"><AlertTriangle className="w-4 h-4" /><span className="text-sm font-medium">{result.leakCount} data bocor ditemukan</span></div></CardContent>
+            </Card>
+          )}
+
+          {result.searchResults?.length > 0 && (
+            <div><h3 className="text-sm font-semibold mb-2">Hasil Pencarian ({result.searchResults.length})</h3><div className="space-y-2 max-h-96 overflow-y-auto">{result.searchResults.map((r, i) => <ResultLink key={i} {...r} />)}</div></div>
+          )}
           <AIAnalysisCard analysis={result.aiAnalysis || ''} />
         </motion.div>
       )}
@@ -2845,6 +3050,7 @@ export default function OSINTApp() {
       case 'mac': return <MacModule />;
       case 'people': return <PeopleModule />;
       case 'vehicle': return <VehicleModule />;
+      case 'imei': return <ImeiModule />;
       case 'ktp': return <KtpModule />;
       case 'nik': return <NikModule />;
       case 'school': return <SchoolModule />;

@@ -5,6 +5,18 @@ import { safeWebSearch, safeAIAnalysis, sequentialWebSearch } from '@/lib/zai';
 // Examples: B 1234 AB, D 5678 XY, BK 123 CD, RI 1 ABC
 const PLATE_REGEX = /^([A-Z]{1,3})\s*(\d{1,4})\s*([A-Z]{1,3})$/i;
 
+// Special plate prefixes for government, police, military, diplomatic
+const SPECIAL_PREFIXES: Record<string, { category: string; description: string }> = {
+  'RI': { category: 'government', description: 'Government official vehicle (Republik Indonesia)' },
+  'CD': { category: 'diplomatic', description: 'Korps Diplomatik - Diplomatic corps vehicle' },
+  'CC': { category: 'consular', description: 'Konsulat - Consular vehicle' },
+  'AB': { category: 'military', description: 'TNI AD - Indonesian Army vehicle' },
+  'AD': { category: 'military', description: 'TNI AD - Indonesian Army vehicle' },
+  'AL': { category: 'military', description: 'TNI AL - Indonesian Navy vehicle' },
+  'AU': { category: 'military', description: 'TNI AU - Indonesian Air Force vehicle' },
+  'Z':  { category: 'police', description: 'Polri - Indonesian National Police vehicle' },
+};
+
 // Indonesian region code mapping (first letter(s) of plate indicate region)
 const REGION_MAP: Record<string, { region: string; province: string; description: string }> = {
   'A': { region: 'Banten', province: 'Banten', description: 'Tangerang, South Tangerang, Serang, Cilegon, Pandeglang' },
@@ -86,7 +98,77 @@ const REGION_MAP: Record<string, { region: string; province: string; description
   'Z': { region: 'Polri', province: 'Police', description: 'Indonesian National Police (Polri) vehicle' },
 };
 
-function validatePlate(plate: string): { valid: boolean; regionCode: string; region: string; province: string; description: string; normalized: string } {
+/**
+ * Detect vehicle category based on plate patterns.
+ * - Cars (mobil): typically 1-4 digits in the middle, 1-3 trailing letters
+ * - Motorcycles (motor): commonly have 1-2 digits in the middle and specific suffix patterns
+ * - Special plates (government, military, police, diplomatic) override category
+ */
+function detectVehicleCategory(
+  regionCode: string,
+  middleDigits: string,
+  trailingLetters: string
+): 'mobil' | 'motor' | 'unknown' {
+  // Check special plates first
+  const special = SPECIAL_PREFIXES[regionCode];
+  if (special) {
+    // Government/police/military/diplomatic plates can be either mobil or motor
+    // but are predominantly mobil for official vehicles
+    return 'mobil';
+  }
+
+  const digitCount = middleDigits.length;
+  const suffixCount = trailingLetters.length;
+
+  // Heuristic based on Indonesian plate conventions:
+  // - 3-4 digits with 2-3 suffix letters: very likely a car
+  // - 1-2 digits with 1-2 suffix letters: more likely motorcycle
+  // - 4 digits: almost certainly a car (motorcycle plates rarely go to 4 digits)
+  if (digitCount >= 4) return 'mobil';
+  if (digitCount === 3) {
+    // 3 digits with 3 suffix letters = typically car in dense areas
+    if (suffixCount >= 2) return 'mobil';
+    return 'mobil'; // 3 digits still more commonly car
+  }
+  if (digitCount === 2) {
+    // 2 digits is ambiguous — could be either. In major cities more likely motor.
+    // We'll default to 'motor' for 1-2 digit plates as that's the more common motorcycle pattern
+    if (suffixCount <= 2) return 'motor';
+    return 'mobil';
+  }
+  if (digitCount === 1) {
+    // Single digit — usually special or motorcycle
+    return 'motor';
+  }
+
+  return 'unknown';
+}
+
+/**
+ * Detect if plate is a special/dinas plate
+ */
+function detectSpecialPlate(regionCode: string): { isSpecial: boolean; specialType: string; specialDescription: string } {
+  const special = SPECIAL_PREFIXES[regionCode];
+  if (special) {
+    return { isSpecial: true, specialType: special.category, specialDescription: special.description };
+  }
+  return { isSpecial: false, specialType: '', specialDescription: '' };
+}
+
+interface ValidationResult {
+  valid: boolean;
+  regionCode: string;
+  region: string;
+  province: string;
+  description: string;
+  normalized: string;
+  vehicleCategory: 'mobil' | 'motor' | 'unknown';
+  specialPlate: { isSpecial: boolean; specialType: string; specialDescription: string };
+  middleDigits: string;
+  trailingLetters: string;
+}
+
+function validatePlate(plate: string): ValidationResult {
   const trimmed = plate.trim().toUpperCase();
 
   // Normalize: ensure spaces between parts
@@ -95,13 +177,29 @@ function validatePlate(plate: string): { valid: boolean; regionCode: string; reg
   const match = normalizedPlate.match(PLATE_REGEX);
 
   if (!match) {
-    return { valid: false, regionCode: '', region: '', province: '', description: '', normalized: normalizedPlate };
+    return {
+      valid: false,
+      regionCode: '',
+      region: '',
+      province: '',
+      description: '',
+      normalized: normalizedPlate,
+      vehicleCategory: 'unknown',
+      specialPlate: { isSpecial: false, specialType: '', specialDescription: '' },
+      middleDigits: '',
+      trailingLetters: '',
+    };
   }
 
   const regionCode = match[1].toUpperCase();
+  const middleDigits = match[2];
+  const trailingLetters = match[3].toUpperCase();
 
   // Look up region - try 2-letter first, then 1-letter
   const regionInfo = REGION_MAP[regionCode] || null;
+
+  const vehicleCategory = detectVehicleCategory(regionCode, middleDigits, trailingLetters);
+  const specialPlate = detectSpecialPlate(regionCode);
 
   return {
     valid: true,
@@ -110,6 +208,10 @@ function validatePlate(plate: string): { valid: boolean; regionCode: string; reg
     province: regionInfo?.province || 'Unknown Province',
     description: regionInfo?.description || '',
     normalized: normalizedPlate,
+    vehicleCategory,
+    specialPlate,
+    middleDigits,
+    trailingLetters,
   };
 }
 
@@ -136,49 +238,185 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { regionCode, region, province, description, normalized } = validation;
+    const {
+      regionCode,
+      region,
+      province,
+      description,
+      normalized,
+      vehicleCategory,
+      specialPlate,
+      middleDigits,
+      trailingLetters,
+    } = validation;
 
-    // Sequential web searches to avoid rate limiting
+    // Vehicle category label for search context
+    const categoryLabel = vehicleCategory === 'mobil' ? 'mobil' : vehicleCategory === 'motor' ? 'sepeda motor' : 'kendaraan';
+    const categoryLabelEN = vehicleCategory === 'mobil' ? 'car' : vehicleCategory === 'motor' ? 'motorcycle' : 'vehicle';
+
+    // ====== COMPREHENSIVE WEB SEARCHES ======
+    // Sequential web searches to avoid rate limiting — 8 targeted queries
     const [
       registrationResults,
+      stnkResults,
+      taxResults,
+      bpkbResults,
+      stolenResults,
+      accidentResults,
       crimeResults,
       dataLeakResults,
       vehicleInfoResults,
+      rentalResults,
     ] = await sequentialWebSearch([
-      { query: `"${normalized}" nomor polisi kendaraan registrasi STNK BPKB plat nomor Indonesia`, num: 5 },
-      { query: `"${normalized}" plat nomor kejahatan crime accident stolen curi tilang public record pemilik`, num: 5 },
-      { query: `"${normalized}" data leak breach exposed bocor personal data KTP identitas`, num: 5 },
-      { query: `"${normalized}" OR "${regionCode}" plat nomor jenis kendaraan type merk model`, num: 5 },
-    ], 800);
+      // 1. Vehicle registration check
+      {
+        query: `"${normalized}" cek registrasi kendaraan nomor polisi Indonesia verifikasi`,
+        num: 5,
+      },
+      // 2. STNK status check
+      {
+        query: `"${normalized}" STNK status cek masa berlaku surat tanda nomor kendaraan ${regionCode}`,
+        num: 5,
+      },
+      // 3. Tax/pajak kendaraan info
+      {
+        query: `"${normalized}" pajak kendaraan PKB cek pajak plat ${regionCode} ${categoryLabel}`,
+        num: 5,
+      },
+      // 4. BPKB info
+      {
+        query: `"${normalized}" BPKB bukti kepemilikan kendaraan ${categoryLabel} ${regionCode}`,
+        num: 5,
+      },
+      // 5. Stolen vehicle databases
+      {
+        query: `"${normalized}" kendaraan hilang motor hilang mobil dicuri stolen vehicle ${regionCode} laporan kepolisian`,
+        num: 5,
+      },
+      // 6. Accident reports
+      {
+        query: `"${normalized}" kecelakaan accident ${categoryLabel} lalu lintas tabrak ${regionCode}`,
+        num: 5,
+      },
+      // 7. Crime / violations
+      {
+        query: `"${normalized}" kejahatan crime tilang pelanggaran penipuan fraud wanted dugaan ${categoryLabel}`,
+        num: 5,
+      },
+      // 8. Data leaks
+      {
+        query: `"${normalized}" data leak breach exposed bocor personal data KTP NIK identitas pemilik`,
+        num: 5,
+      },
+      // 9. Vehicle type & specification
+      {
+        query: `"${normalized}" OR "${regionCode} ${middleDigits}" plat nomor jenis kendaraan ${categoryLabel} merk model spesifikasi CC`,
+        num: 5,
+      },
+      // 10. Rental vehicle check
+      {
+        query: `"${normalized}" rental sewa ${categoryLabel} rental mobil rental motor ${regionCode}`,
+        num: 5,
+      },
+    ], 600);
 
-    // Parse search results into uniform format
+    // ====== PARSE HELPERS ======
     const parseResults = (results: unknown[]) => {
-      return (results as Array<Record<string, string>>).map((r) => ({
-        url: r.url || '',
-        title: r.name || '',
-        snippet: r.snippet || '',
-        source: r.host_name || '',
-      })).filter((r) => r.title || r.snippet);
+      return (results as Array<Record<string, string>>)
+        .map((r) => ({
+          url: r.url || '',
+          title: r.name || '',
+          snippet: r.snippet || '',
+          source: r.host_name || '',
+        }))
+        .filter((r) => r.title || r.snippet);
     };
 
     const registrationData = parseResults(registrationResults);
+    const stnkData = parseResults(stnkResults);
+    const taxData = parseResults(taxResults);
+    const bpkbData = parseResults(bpkbResults);
+    const stolenData = parseResults(stolenResults);
+    const accidentData = parseResults(accidentResults);
     const crimeData = parseResults(crimeResults);
     const leakData = parseResults(dataLeakResults);
     const vehicleData = parseResults(vehicleInfoResults);
-    const stnkData = registrationData;
-    const publicRecordData = registrationData;
+    const rentalData = parseResults(rentalResults);
 
-    // ====== PUBLIC RECORDS ======
-    const publicRecords = publicRecordData.slice(0, 10).map((r) => ({
-      title: r.title,
-      snippet: r.snippet,
-      url: r.url,
-      source: r.source,
-      relevance: 'high' as const,
-    }));
+    // ====== REGISTRATION STATUS ======
+    const regText = registrationData.map((r) => `${r.title} ${r.snippet}`).join(' ').toLowerCase();
+    let registrationStatus = 'Unknown';
+    if (regText.includes('aktif') || regText.includes('active') || regText.includes('terdaftar') || regText.includes('registered')) {
+      registrationStatus = 'Active/Registered';
+    } else if (regText.includes('tidak aktif') || regText.includes('inactive') || regText.includes('expired') || regText.includes('kadaluarsa')) {
+      registrationStatus = 'Inactive/Expired';
+    } else if (regText.includes('diblokir') || regText.includes('blocked')) {
+      registrationStatus = 'Blocked';
+    }
 
-    // ====== CRIME / ACCIDENT REPORTS ======
-    const crimeKeywords = ['kejahatan', 'crime', 'accident', 'stolen', 'curi', 'tilang', 'pelanggaran', 'violations', 'wanted', 'pencurian', 'rampok', 'penipuan', 'fraud', 'hit and run', 'tabrak lari'];
+    // ====== TAX STATUS ======
+    const taxText = taxData.map((r) => `${r.title} ${r.snippet}`).join(' ').toLowerCase();
+    let taxStatus = 'Unknown';
+    if (taxText.includes('lunas') || taxText.includes('paid') || taxText.includes('bayar')) {
+      taxStatus = 'Paid/Lunas';
+    } else if (taxText.includes('belum bayar') || taxText.includes('unpaid') || taxText.includes('tunggakan') || taxText.includes('arrears')) {
+      taxStatus = 'Unpaid/Tunggakan';
+    } else if (taxText.includes('kadaluarsa') || taxText.includes('expired') || taxText.includes('jatuh tempo')) {
+      taxStatus = 'Expired/Jatuh Tempo';
+    }
+
+    // ====== STOLEN REPORTS ======
+    const stolenKeywords = ['hilang', 'stolen', 'curi', 'pencurian', 'dicuri', 'lost', 'missing', 'kehilangan', 'lapor hilang'];
+    const stolenReports = stolenData
+      .filter((r) => stolenKeywords.some((k) => `${r.title} ${r.snippet}`.toLowerCase().includes(k)))
+      .map((r) => {
+        const text = `${r.title} ${r.snippet}`.toLowerCase();
+        let severity: 'critical' | 'high' | 'medium' | 'low' = 'critical';
+
+        if (text.includes('dicuri') || text.includes('pencurian') || text.includes('stolen')) {
+          severity = 'critical';
+        } else if (text.includes('hilang') || text.includes('kehilangan') || text.includes('missing')) {
+          severity = 'high';
+        }
+
+        return {
+          type: 'Vehicle Theft/Theft Report' as const,
+          severity,
+          source: r.source,
+          description: r.snippet.substring(0, 300),
+          url: r.url,
+          date: '',
+        };
+      });
+
+    // ====== ACCIDENT REPORTS ======
+    const accidentKeywords = ['kecelakaan', 'accident', 'tabrak', 'tabrakan', 'crash', 'collision', 'laka lantas', 'lalu lintas', 'kejadian lalu lintas'];
+    const accidentReports = accidentData
+      .filter((r) => accidentKeywords.some((k) => `${r.title} ${r.snippet}`.toLowerCase().includes(k)))
+      .map((r) => {
+        const text = `${r.title} ${r.snippet}`.toLowerCase();
+        let severity: 'critical' | 'high' | 'medium' | 'low' = 'medium';
+
+        if (text.includes('meninggal') || text.includes('tewas') || text.includes('fatal') || text.includes('killed')) {
+          severity = 'critical';
+        } else if (text.includes('luka berat') || text.includes('serious injury') || text.includes('critical')) {
+          severity = 'high';
+        } else if (text.includes('luka ringan') || text.includes('minor')) {
+          severity = 'low';
+        }
+
+        return {
+          type: 'Traffic Accident' as const,
+          severity,
+          source: r.source,
+          description: r.snippet.substring(0, 300),
+          url: r.url,
+          date: '',
+        };
+      });
+
+    // ====== CRIME / VIOLATION REPORTS ======
+    const crimeKeywords = ['kejahatan', 'crime', 'tilang', 'pelanggaran', 'penipuan', 'fraud', 'wanted', 'rampok', 'dugaan', 'narkoba', 'drug', 'pencurian', 'curi'];
     const crimeReports = crimeData
       .filter((r) => crimeKeywords.some((k) => `${r.title} ${r.snippet}`.toLowerCase().includes(k)))
       .map((r) => {
@@ -186,34 +424,37 @@ export async function POST(request: NextRequest) {
         let severity: 'critical' | 'high' | 'medium' | 'low' = 'medium';
         let type = 'Incident Report';
 
-        if (text.includes('stolen') || text.includes('curi') || text.includes('pencurian')) {
+        if (text.includes('pencurian') || text.includes('curi') || text.includes('stolen')) {
           severity = 'critical';
           type = 'Vehicle Theft';
         } else if (text.includes('kejahatan') || text.includes('crime') || text.includes('rampok')) {
           severity = 'critical';
           type = 'Criminal Activity';
-        } else if (text.includes('penipuan') || text.includes('fraud')) {
+        } else if (text.includes('narkoba') || text.includes('drug') || text.includes('narcotics')) {
+          severity = 'critical';
+          type = 'Drug-Related Offense';
+        } else if (text.includes('penipuan') || text.includes('fraud') || text.includes('scam')) {
           severity = 'high';
           type = 'Fraud Report';
         } else if (text.includes('tilang') || text.includes('pelanggaran')) {
           severity = 'medium';
           type = 'Traffic Violation';
-        } else if (text.includes('accident') || text.includes('tabrak')) {
-          severity = 'medium';
-          type = 'Traffic Accident';
+        } else if (text.includes('dugaan') || text.includes('suspected')) {
+          severity = 'high';
+          type = 'Suspected Activity';
         }
 
         return {
           type,
           severity,
           source: r.source,
-          description: r.snippet.substring(0, 250),
+          description: r.snippet.substring(0, 300),
           url: r.url,
         };
       });
 
     // ====== DATA LEAK DETECTION ======
-    const leakKeywords = ['leak', 'breach', 'exposed', 'ktp', 'identitas', 'nik', 'password', 'data bocor', 'hacked', 'compromised', 'personal data'];
+    const leakKeywords = ['leak', 'breach', 'exposed', 'ktp', 'identitas', 'nik', 'password', 'data bocor', 'hacked', 'compromised', 'personal data', 'data pribadi'];
     const dataLeaks = leakData
       .filter((r) => leakKeywords.some((k) => `${r.title} ${r.snippet}`.toLowerCase().includes(k)))
       .map((r) => {
@@ -242,7 +483,7 @@ export async function POST(request: NextRequest) {
           type,
           severity,
           source: r.source,
-          description: r.snippet.substring(0, 250),
+          description: r.snippet.substring(0, 300),
           url: r.url,
         };
       });
@@ -250,57 +491,207 @@ export async function POST(request: NextRequest) {
     // ====== VEHICLE TYPE DETECTION ======
     const vehicleText = vehicleData.map((r) => `${r.title} ${r.snippet}`).join(' ').toLowerCase();
     let vehicleType = 'Unknown';
-    if (vehicleText.includes('motor') || vehicleText.includes('sepeda motor')) vehicleType = 'Motorcycle';
+    if (vehicleText.includes('sepeda motor') || (vehicleText.includes('motor') && !vehicleText.includes('mobil'))) vehicleType = 'Motorcycle';
     else if (vehicleText.includes('sedan') || vehicleText.includes('mobil')) vehicleType = 'Car/Sedan';
     else if (vehicleText.includes('suv')) vehicleType = 'SUV';
     else if (vehicleText.includes('pick up') || vehicleText.includes('pickup')) vehicleType = 'Pickup Truck';
     else if (vehicleText.includes('bus')) vehicleType = 'Bus';
     else if (vehicleText.includes('truk') || vehicleText.includes('truck')) vehicleType = 'Truck';
     else if (vehicleText.includes('minibus')) vehicleType = 'Minibus';
+    else if (vehicleText.includes('mpv')) vehicleType = 'MPV';
+    else if (vehicleText.includes('hatchback')) vehicleType = 'Hatchback';
 
-    // Combine all search results
+    // ====== VEHICLE INFO EXTRACTION ======
+    const extractPattern = (text: string, patterns: RegExp[]): string => {
+      for (const pattern of patterns) {
+        const match = text.match(pattern);
+        if (match) return match[1] || match[0];
+      }
+      return '';
+    };
+
+    const allVehicleText = vehicleData.map((r) => `${r.title} ${r.snippet}`).join(' ');
+
+    const vehicleInfo = {
+      brand: extractPattern(allVehicleText, [
+        /(?:merk|brand|made)[:\s]+([A-Za-z]+)/i,
+        /(?:Honda|Toyota|Yamaha|Suzuki|Kawasaki|Mitsubishi|Daihatsu|BMW|Mercedes|Hyundai|Mazda|Nissan|VW|Kia)/i,
+      ]),
+      model: extractPattern(allVehicleText, [
+        /(?:tipe|model|type)[:\s]+([A-Za-z0-9\- ]+)/i,
+      ]),
+      year: extractPattern(allVehicleText, [
+        /(?:tahun|year)[:\s]+(20\d{2}|19\d{2})/i,
+      ]),
+      color: extractPattern(allVehicleText, [
+        /(?:warna|color)[:\s]+([A-Za-z]+)/i,
+      ]),
+      fuelType: (() => {
+        if (allVehicleText.toLowerCase().includes('bensin') || allVehicleText.toLowerCase().includes('gasoline')) return 'Bensin/Gasoline';
+        if (allVehicleText.toLowerCase().includes('diesel') || allVehicleText.toLowerCase().includes('solar')) return 'Diesel/Solar';
+        if (allVehicleText.toLowerCase().includes('listrik') || allVehicleText.toLowerCase().includes('electric')) return 'Listrik/Electric';
+        if (allVehicleText.toLowerCase().includes('hybrid')) return 'Hybrid';
+        return '';
+      })(),
+      cc: extractPattern(allVehicleText, [
+        /(\d{2,5})\s*cc/i,
+        /(?:cc|kapasitas)[:\s]+(\d{2,5})/i,
+      ]),
+      ownerType: (() => {
+        const lower = allVehicleText.toLowerCase();
+        if (lower.includes('pribadi') || lower.includes('personal') || lower.includes('private')) return 'Pribadi/Private';
+        if (lower.includes('perusahaan') || lower.includes('company') || lower.includes('corporate')) return 'Perusahaan/Company';
+        if (lower.includes('dinas') || lower.includes('official')) return 'Dinas/Official';
+        if (lower.includes('rental') || lower.includes('sewa')) return 'Rental/Sewa';
+        return '';
+      })(),
+    };
+
+    // ====== PUBLIC RECORDS ======
+    const publicRecords = [
+      ...registrationData.slice(0, 4).map((r) => ({ ...r, relevance: 'high' as const, category: 'Registration' })),
+      ...taxData.slice(0, 3).map((r) => ({ ...r, relevance: 'high' as const, category: 'Tax/Pajak' })),
+      ...stnkData.slice(0, 3).map((r) => ({ ...r, relevance: 'high' as const, category: 'STNK' })),
+    ].filter((r) => r.title || r.snippet);
+
+    // ====== COMBINED SEARCH RESULTS ======
     const searchResults = [
-      ...registrationData.slice(0, 4).map((r) => ({ ...r, category: 'Registration' })),
+      ...registrationData.slice(0, 3).map((r) => ({ ...r, category: 'Registration' })),
       ...stnkData.slice(0, 3).map((r) => ({ ...r, category: 'STNK Data' })),
-      ...crimeData.slice(0, 3).map((r) => ({ ...r, category: 'Crime/Accident' })),
-      ...vehicleData.slice(0, 3).map((r) => ({ ...r, category: 'Vehicle Info' })),
+      ...taxData.slice(0, 2).map((r) => ({ ...r, category: 'Tax/Pajak' })),
+      ...bpkbData.slice(0, 2).map((r) => ({ ...r, category: 'BPKB Data' })),
+      ...stolenData.slice(0, 2).map((r) => ({ ...r, category: 'Stolen/Missing' })),
+      ...accidentData.slice(0, 2).map((r) => ({ ...r, category: 'Accident' })),
+      ...crimeData.slice(0, 2).map((r) => ({ ...r, category: 'Crime/Violation' })),
+      ...vehicleData.slice(0, 2).map((r) => ({ ...r, category: 'Vehicle Info' })),
+      ...rentalData.slice(0, 2).map((r) => ({ ...r, category: 'Rental' })),
     ];
 
-    // Comprehensive AI analysis
+    // ====== COMPREHENSIVE AI ANALYSIS ======
     const allContext = [
-      ...registrationData.slice(0, 4).map((r) => `[REGISTRATION] ${r.title}: ${r.snippet}`),
-      ...stnkData.slice(0, 3).map((r) => `[STNK] ${r.title}: ${r.snippet}`),
-      ...publicRecordData.slice(0, 3).map((r) => `[PUBLIC-RECORD] ${r.title}: ${r.snippet}`),
-      ...crimeData.slice(0, 3).map((r) => `[CRIME] ${r.title}: ${r.snippet}`),
-      ...leakData.slice(0, 3).map((r) => `[LEAK] ${r.title}: ${r.snippet}`),
-      ...vehicleData.slice(0, 3).map((r) => `[VEHICLE] ${r.title}: ${r.snippet}`),
+      ...registrationData.slice(0, 3).map((r) => `[REGISTRATION] ${r.title}: ${r.snippet}`),
+      ...stnkData.slice(0, 2).map((r) => `[STNK] ${r.title}: ${r.snippet}`),
+      ...taxData.slice(0, 2).map((r) => `[TAX/PAJAK] ${r.title}: ${r.snippet}`),
+      ...bpkbData.slice(0, 2).map((r) => `[BPKB] ${r.title}: ${r.snippet}`),
+      ...stolenData.slice(0, 2).map((r) => `[STOLEN/MISSING] ${r.title}: ${r.snippet}`),
+      ...accidentData.slice(0, 2).map((r) => `[ACCIDENT] ${r.title}: ${r.snippet}`),
+      ...crimeData.slice(0, 2).map((r) => `[CRIME] ${r.title}: ${r.snippet}`),
+      ...leakData.slice(0, 2).map((r) => `[DATA-LEAK] ${r.title}: ${r.snippet}`),
+      ...vehicleData.slice(0, 2).map((r) => `[VEHICLE-INFO] ${r.title}: ${r.snippet}`),
+      ...rentalData.slice(0, 2).map((r) => `[RENTAL] ${r.title}: ${r.snippet}`),
     ].join('\n\n');
+
+    const specialPlateContext = specialPlate.isSpecial
+      ? `\n⚠️ SPECIAL PLATE DETECTED: ${specialPlate.specialDescription} (${specialPlate.specialType})`
+      : '';
 
     const aiAnalysis = allContext.length > 0
       ? await safeAIAnalysis(
-          `OSINT analyst for Indonesian vehicle plate intelligence. Report with: ## 📋 PLATE NUMBER ANALYSIS ## 🗺️ REGIONAL INTELLIGENCE ## 🚗 VEHICLE IDENTIFICATION ## 🔍 PUBLIC RECORDS ## 🚨 CRIME & SAFETY ## ⚠️ DATA LEAK & BREACH ## 🔐 SECURITY ASSESSMENT ## 🎯 RECOMMENDATIONS
-Be concise. Keep each section to 2-3 lines.`,
-          `Plate: ${normalized} | Region: ${regionCode} (${region}) | Province: ${province} | Type: ${vehicleType} | Crimes: ${crimeReports.length} | Leaks: ${dataLeaks.length}
+          `You are an expert OSINT analyst specializing in Indonesian vehicle plate intelligence for both cars (mobil) and motorcycles (motor). Provide a comprehensive analysis report with these sections:
 
-${allContext.substring(0, 1500)}`
+## 📋 PLATE NUMBER ANALYSIS
+Analyze the plate format, validity, and structure. State if it's a mobil (car) or motor (motorcycle) plate.
+
+## 🗺️ REGIONAL INTELLIGENCE
+Detail the region, province, and key cities associated with this plate code.
+
+## 🚗 VEHICLE IDENTIFICATION
+Identify the vehicle type (mobil/motor), brand, model, CC, and specifications if available.
+
+## 📄 REGISTRATION & STNK STATUS
+Registration status, STNK validity, and BPKB ownership data.
+
+## 💰 TAX & FINANCIAL STATUS
+PKB (Pajak Kendaraan Bermotor) status, payment info, and any arrears.
+
+## 🚨 CRIME & SAFETY REPORTS
+Any criminal activity, theft reports, fraud, traffic violations, or wanted status.
+
+## 🚫 STOLEN VEHICLE CHECK
+Check for stolen vehicle reports, missing vehicle databases, and police reports.
+
+## 🔥 ACCIDENT REPORTS
+Traffic accidents, crash reports, and incident history.
+
+## 🏢 RENTAL VEHICLE CHECK
+Whether the vehicle appears in rental databases or is associated with rental companies.
+
+## ⚠️ DATA LEAK & BREACH
+Personal data exposure, identity leaks, or credential compromises related to this plate.
+
+## 🔐 SECURITY ASSESSMENT
+Overall risk level (LOW/MEDIUM/HIGH/CRITICAL) with reasoning.
+
+## 🎯 RECOMMENDATIONS
+Actionable next steps for the investigator.
+
+Be concise. Keep each section to 2-3 lines. Focus on factual findings from the data provided.`,
+          `Plate: ${normalized} | Region Code: ${regionCode} (${region}) | Province: ${province} | Vehicle Category: ${vehicleCategory} (${categoryLabelEN}) | Type: ${vehicleType} | Middle Digits: ${middleDigits} | Suffix: ${trailingLetters} | Registration: ${registrationStatus} | Tax: ${taxStatus} | Crimes: ${crimeReports.length} | Stolen Reports: ${stolenReports.length} | Accidents: ${accidentReports.length} | Leaks: ${dataLeaks.length}${specialPlateContext}
+
+Vehicle Info: ${JSON.stringify(vehicleInfo)}
+
+${allContext.substring(0, 2500)}`
         )
       : 'No intelligence data available for this vehicle plate.';
 
+    // ====== BUILD COMPREHENSIVE RESPONSE ======
     return NextResponse.json({
       success: true,
+
+      // Core plate info
       plate: normalized,
       regionCode,
       region,
       province,
       regionDescription: description,
+
+      // Vehicle type & category
       vehicleType,
-      searchResults,
-      publicRecords,
+      vehicleCategory,
+
+      // Special plate detection
+      specialPlate: specialPlate.isSpecial
+        ? { detected: true, type: specialPlate.specialType, description: specialPlate.specialDescription }
+        : { detected: false, type: null, description: null },
+
+      // Registration & legal status
+      registrationStatus,
+      taxStatus,
+
+      // Detailed search results by category
+      stnkData: stnkData.slice(0, 5),
+      bpkbData: bpkbData.slice(0, 5),
+      taxData: taxData.slice(0, 5),
+
+      // Crime & safety
       crimeReports,
       crimeCount: crimeReports.length,
+      stolenReports,
+      stolenCount: stolenReports.length,
+      accidentReports,
+      accidentCount: accidentReports.length,
+
+      // Data security
       dataLeaks,
       leakCount: dataLeaks.length,
-      stnkResults: stnkData.slice(0, 5),
+
+      // Public records
+      publicRecords,
+
+      // Vehicle specifications
+      vehicleInfo,
+
+      // Rental check
+      rentalData: rentalData.slice(0, 5),
+      rentalIndicated: rentalData.some((r) =>
+        `${r.title} ${r.snippet}`.toLowerCase().includes('rental') ||
+        `${r.title} ${r.snippet}`.toLowerCase().includes('sewa')
+      ),
+
+      // Combined search results
+      searchResults,
+
+      // AI comprehensive analysis
       aiAnalysis,
     });
 
