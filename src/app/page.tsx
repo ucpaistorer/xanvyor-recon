@@ -1215,68 +1215,122 @@ function AIChatModule() {
 // WiFi Scanner Module
 // ============================================================
 interface WifiScanResult {
-  success: boolean; networks: Array<{ ssid: string; bssid: string; signalStrength: number; encryption: string; channel: number; frequency: string; isConnected: boolean; password: string; vulnerability: string }>;
+  success: boolean; networks: Array<{ ssid: string; password: string; encryption: string; security: string; source: string; distance: string; venueName: string; venueType: string; signalStrength: string; isReal: boolean; realSource: string }>;
   totalFound: number; networksWithPassword: number; safeNetworks: number; vulnerableNetworks: number;
   mapLocation: { lat: number; lng: number; area: string; road: string; neighborhood: string; city: string; state: string; fullAddress: string };
-  gpsDetected: boolean; locationMethod: string; ipLocation: string; connectedSSID: string; aiAnalysis: string;
+  gpsDetected: boolean; locationMethod: string; ipLocation: { city: string; region: string; isp: string } | null; connectedSSID: string | null; aiAnalysis: string;
 }
 
 function WifiScanModule() {
   const [location, setLocation] = useState('');
+  const [connectedSSID, setConnectedSSID] = useState('');
+  const [gpsCoords, setGpsCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [gpsLoading, setGpsLoading] = useState(false);
   const { loading, result, error, search } = useOSINTSearch<WifiScanResult>();
 
-  const doSearch = useCallback(() => {
-    search('/api/osint/wifi-scan', { location: location.trim() });
-  }, [location, search]);
+  const detectGPS = useCallback(() => {
+    if (!navigator.geolocation) { return; }
+    setGpsLoading(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => { setGpsCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude }); setGpsLoading(false); },
+      () => { setGpsLoading(false); },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  }, []);
+
+  const doSearch = useCallback((method: 'gps' | 'ip' | 'manual') => {
+    const body: Record<string, string | number | boolean> = {};
+    if (method === 'gps' && gpsCoords) { body.lat = gpsCoords.lat; body.lng = gpsCoords.lng; body.connectedSSID = connectedSSID; }
+    else if (method === 'ip') { body.useIpLocation = true; body.connectedSSID = connectedSSID; }
+    else if (method === 'manual' && location.trim()) { body.location = location.trim(); body.connectedSSID = connectedSSID; }
+    else { body.useIpLocation = true; body.connectedSSID = connectedSSID; }
+    search('/api/osint/wifi-scan', body as Record<string, string>);
+  }, [location, connectedSSID, gpsCoords, search]);
+
+  const handleScan = useCallback(() => {
+    if (gpsCoords) doSearch('gps');
+    else if (location.trim()) doSearch('manual');
+    else doSearch('ip');
+  }, [gpsCoords, location, doSearch]);
 
   return (
     <div className="space-y-6">
-      <ModuleHeader icon={<Wifi className="w-5 h-5" />} color="from-purple-500 to-violet-500" title="WiFi Scanner" subtitle="Scan & analyze WiFi networks" />
-      <div className="flex gap-3">
-        <div className="relative flex-1">
-          <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input placeholder="Enter location (optional)..." value={location} onChange={e => setLocation(e.target.value)} onKeyDown={e => e.key === 'Enter' && doSearch()} className="pl-10 bg-card/50 border-border/50" />
-        </div>
-        <Button onClick={doSearch} disabled={loading} className="bg-purple-600 hover:bg-purple-700 text-white min-w-[100px]">
-          {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wifi className="w-4 h-4 mr-2" />}{loading ? 'Scanning' : 'Scan'}
-        </Button>
-      </div>
-      {loading && <LoadingIndicator message="Scanning WiFi networks" />}
+      <ModuleHeader icon={<Wifi className="w-5 h-5" />} color="from-purple-500 to-violet-500" title="WiFi Scanner" subtitle="Scan & analisis jaringan WiFi sekitar" />
+      <Card className="border-purple-500/20 bg-purple-500/5">
+        <CardContent className="p-4 space-y-3">
+          <div className="flex gap-3">
+            <div className="relative flex-1">
+              <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <Input placeholder="Masukkan lokasi (opsional)..." value={location} onChange={e => setLocation(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleScan()} className="pl-10 bg-card/50 border-border/50" />
+            </div>
+          </div>
+          <div className="flex gap-3">
+            <div className="relative flex-1">
+              <Wifi className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <Input placeholder="SSID WiFi yang terhubung (opsional)..." value={connectedSSID} onChange={e => setConnectedSSID(e.target.value)} className="pl-10 bg-card/50 border-border/50" />
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button onClick={() => detectGPS()} disabled={gpsLoading || loading} variant="outline" className="border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10">
+              {gpsLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <MapPin className="w-4 h-4 mr-2" />}
+              {gpsCoords ? `GPS: ${gpsCoords.lat.toFixed(4)}, ${gpsCoords.lng.toFixed(4)}` : 'Deteksi GPS'}
+            </Button>
+            <Button onClick={() => doSearch('ip')} disabled={loading} variant="outline" className="border-cyan-500/30 text-cyan-400 hover:bg-cyan-500/10">
+              <Globe className="w-4 h-4 mr-2" />Deteksi IP
+            </Button>
+            <Button onClick={handleScan} disabled={loading} className="bg-purple-600 hover:bg-purple-700 text-white min-w-[120px]">
+              {loading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Wifi className="w-4 h-4 mr-2" />}{loading ? 'Scanning' : 'Scan WiFi'}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+      {loading && <LoadingIndicator message="Scanning WiFi networks di sekitar lokasi" />}
       {error && <ErrorCard error={error} />}
       {result && (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <div className="p-3 rounded-lg border border-border/30 bg-card/30"><div className="text-xs text-muted-foreground">Networks Found</div><div className="text-2xl font-bold text-purple-400">{result.totalFound}</div></div>
-            <div className="p-3 rounded-lg border border-border/30 bg-card/30"><div className="text-xs text-muted-foreground">With Password</div><div className="text-2xl font-bold text-amber-400">{result.networksWithPassword}</div></div>
-            <div className="p-3 rounded-lg border border-border/30 bg-card/30"><div className="text-xs text-muted-foreground">Safe</div><div className="text-2xl font-bold text-emerald-400">{result.safeNetworks}</div></div>
-            <div className="p-3 rounded-lg border border-border/30 bg-card/30"><div className="text-xs text-muted-foreground">Vulnerable</div><div className="text-2xl font-bold text-red-400">{result.vulnerableNetworks}</div></div>
+            <div className="p-3 rounded-lg border border-border/30 bg-card/30"><div className="text-xs text-muted-foreground">WiFi Ditemukan</div><div className="text-2xl font-bold text-purple-400">{result.totalFound}</div></div>
+            <div className="p-3 rounded-lg border border-border/30 bg-card/30"><div className="text-xs text-muted-foreground">Ada Password</div><div className="text-2xl font-bold text-amber-400">{result.networksWithPassword}</div></div>
+            <div className="p-3 rounded-lg border border-border/30 bg-card/30"><div className="text-xs text-muted-foreground">Aman</div><div className="text-2xl font-bold text-emerald-400">{result.safeNetworks}</div></div>
+            <div className="p-3 rounded-lg border border-border/30 bg-card/30"><div className="text-xs text-muted-foreground">Rentan</div><div className="text-2xl font-bold text-red-400">{result.vulnerableNetworks}</div></div>
           </div>
           {result.mapLocation && (
             <Card className="border-purple-500/30 bg-purple-500/5">
               <CardContent className="p-4">
-                <div className="text-sm font-medium mb-1">{result.mapLocation.fullAddress || 'Location detected'}</div>
-                <div className="text-xs text-muted-foreground">Method: {result.locationMethod} | GPS: {result.gpsDetected ? 'Yes' : 'No'}</div>
-                {result.connectedSSID && <div className="text-xs text-purple-400 mt-1">Connected: {result.connectedSSID}</div>}
+                <div className="text-sm font-medium mb-1">📍 {result.mapLocation.fullAddress || 'Lokasi terdeteksi'}</div>
+                <div className="text-xs text-muted-foreground">Metode: {result.locationMethod} | GPS: {result.gpsDetected ? '✅' : '❌'}</div>
+                {result.ipLocation && <div className="text-xs text-muted-foreground mt-1">IP Location: {result.ipLocation.city}, {result.ipLocation.region} | ISP: {result.ipLocation.isp}</div>}
+                {result.connectedSSID && <div className="text-xs text-purple-400 mt-1">🔗 Terhubung: {result.connectedSSID}</div>}
               </CardContent>
             </Card>
           )}
-          <div className="space-y-2 max-h-96 overflow-y-auto">
+          <div className="space-y-2 max-h-[500px] overflow-y-auto">
             {result.networks?.map((n, i) => (
-              <div key={i} className={`p-3 rounded-lg border ${n.vulnerability ? 'border-red-500/30 bg-red-500/5' : n.password ? 'border-amber-500/30 bg-amber-500/5' : 'border-emerald-500/30 bg-emerald-500/5'}`}>
+              <div key={i} className={`p-3 rounded-lg border ${n.password ? 'border-amber-500/30 bg-amber-500/5' : n.isReal ? 'border-emerald-500/30 bg-emerald-500/5' : 'border-border/30 bg-card/30'}`}>
                 <div className="flex items-center justify-between">
-                  <div><div className="text-sm font-medium">{n.ssid || 'Hidden'}</div><div className="text-xs text-muted-foreground font-mono">{n.bssid}</div></div>
+                  <div>
+                    <div className="text-sm font-medium flex items-center gap-2">
+                      <Wifi className="w-3 h-3" />
+                      {n.ssid || 'Hidden'}
+                      {n.isReal ? <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30 text-[9px]">Real</Badge> : <Badge className="bg-gray-500/20 text-gray-400 border-gray-500/30 text-[9px]">Estimasi</Badge>}
+                    </div>
+                    <div className="text-xs text-muted-foreground mt-0.5">{n.venueName || n.venueType}</div>
+                  </div>
                   <div className="flex items-center gap-2">
-                    {n.isConnected && <Badge className="bg-purple-500/20 text-purple-400 border-purple-500/30 text-xs">Connected</Badge>}
                     <Badge variant="outline" className="text-xs">{n.encryption}</Badge>
-                    {n.vulnerability && <SeverityBadge severity={n.vulnerability} />}
+                    <Badge variant="outline" className="text-xs">{n.source}</Badge>
                   </div>
                 </div>
-                <div className="flex gap-4 mt-1 text-xs text-muted-foreground">
-                  <span>Signal: {n.signalStrength}%</span><span>Ch: {n.channel}</span><span>{n.frequency}</span>
-                  {n.password && <span className="text-amber-400">Password exposed</span>}
+                <div className="flex flex-wrap gap-3 mt-2 text-xs text-muted-foreground">
+                  <span>📡 {n.signalStrength}</span>
+                  <span>📏 {n.distance}</span>
+                  {n.password && <span className="text-amber-400 font-bold">🔑 Password: {n.password}</span>}
                 </div>
               </div>
             ))}
+            {(!result.networks || result.networks.length === 0) && (
+              <div className="text-center py-8 text-muted-foreground text-sm">Tidak ada WiFi ditemukan. Coba gunakan GPS atau masukkan lokasi yang lebih spesifik.</div>
+            )}
           </div>
           <AIAnalysisCard analysis={result.aiAnalysis || ''} />
         </motion.div>
@@ -2817,96 +2871,317 @@ function LandingPage({ onLogin }: { onLogin: (auth: AuthState) => void }) {
 }
 
 // ============================================================
-// Admin Module
+// Admin Module - Full Control Panel
 // ============================================================
+interface AdminUser {
+  id: string; name: string | null; phone: string | null; createdAt: string;
+  apiKeys: Array<{ id: string; key: string; plan: string; isActive: boolean; expiresAt: string | null; label: string | null; lastUsedAt: string | null; createdAt: string }>;
+}
+
 function AdminModule({ auth, onLogout }: { auth: AuthState; onLogout: () => void }) {
-  const [users, setUsers] = useState<Array<{ id: string; name: string | null; phone: string | null; apiKeys: Array<{ key: string; plan: string; isActive: boolean; expiresAt: string | null }> }>>([]);
+  const [users, setUsers] = useState<AdminUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [newUserName, setNewUserName] = useState('');
   const [newUserPhone, setNewUserPhone] = useState('');
-  const [newKeyPlan, setNewKeyPlan] = useState('free');
+  const [newKeyPlan, setNewKeyPlan] = useState('7days');
+  const [newKeyAdmin, setNewKeyAdmin] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [toast, setToast] = useState('');
+  const [activeTab, setActiveTab] = useState('users');
+  const [copiedKey, setCopiedKey] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
 
-  useEffect(() => {
-    loadUsers();
-  }, []);
+  const adminHeaders = { 'x-admin-key': auth.apiKeyString };
+
+  useEffect(() => { loadUsers(); }, []);
+
+  const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 3000); };
 
   const loadUsers = async () => {
     try {
-      const res = await fetch('/api/admin/users', { headers: { 'x-api-key': auth.apiKeyString } });
+      const res = await fetch('/api/admin/users', { headers: adminHeaders });
       const data = await res.json();
-      setUsers(data.users || []);
-    } catch { /* ignore */ }
+      if (data.users) { setUsers(data.users); }
+      else if (data.error) { showToast(data.error); }
+    } catch { showToast('Gagal memuat data user'); }
     finally { setLoading(false); }
   };
 
   const createUser = async () => {
-    if (!newUserName.trim()) return;
+    if (!newUserName.trim()) { showToast('Nama wajib diisi'); return; }
     setCreating(true);
     try {
       const res = await fetch('/api/admin/users', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-api-key': auth.apiKeyString },
-        body: JSON.stringify({ name: newUserName.trim(), phone: newUserPhone.trim() || null, plan: newKeyPlan }),
+        headers: { 'Content-Type': 'application/json', ...adminHeaders },
+        body: JSON.stringify({ name: newUserName.trim(), phone: newUserPhone.trim() || null, plan: newKeyPlan, isAdmin: newKeyAdmin }),
       });
       const data = await res.json();
       if (data.apiKey) {
+        showToast(`User "${newUserName}" dibuat! Key: ${data.apiKey.key.substring(0, 20)}...`);
         await loadUsers();
-        setNewUserName(''); setNewUserPhone('');
+        setNewUserName(''); setNewUserPhone(''); setNewKeyAdmin(false);
+      } else {
+        showToast(data.error || 'Gagal membuat user');
       }
-    } catch { /* ignore */ }
+    } catch { showToast('Gagal membuat user'); }
     finally { setCreating(false); }
   };
 
+  const toggleKey = async (keyId: string, isActive: boolean) => {
+    try {
+      const res = await fetch('/api/admin/keys', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...adminHeaders },
+        body: JSON.stringify({ keyId, isActive: !isActive }),
+      });
+      const data = await res.json();
+      if (data.success) { await loadUsers(); showToast(`Key ${!isActive ? 'diaktifkan' : 'dinonaktifkan'}`); }
+      else { showToast(data.error || 'Gagal toggle key'); }
+    } catch { showToast('Gagal toggle key'); }
+  };
+
+  const deleteKey = async (keyId: string) => {
+    if (!confirm('Hapus API key ini?')) return;
+    try {
+      const res = await fetch('/api/admin/keys', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json', ...adminHeaders },
+        body: JSON.stringify({ keyId }),
+      });
+      const data = await res.json();
+      if (data.success) { await loadUsers(); showToast('Key dihapus'); }
+      else { showToast(data.error || 'Gagal hapus key'); }
+    } catch { showToast('Gagal hapus key'); }
+  };
+
+  const addKeyToUser = async (userId: string, plan: string, isAdmin: boolean) => {
+    try {
+      const res = await fetch('/api/admin/keys', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...adminHeaders },
+        body: JSON.stringify({ userId, plan, isAdmin }),
+      });
+      const data = await res.json();
+      if (data.success) { await loadUsers(); showToast('Key baru ditambahkan'); }
+      else { showToast(data.error || 'Gagal tambah key'); }
+    } catch { showToast('Gagal tambah key'); }
+  };
+
+  const deleteUser = async (userId: string, userName: string) => {
+    if (!confirm(`Hapus user "${userName}" dan semua key-nya?`)) return;
+    try {
+      // Delete all keys first
+      const user = users.find(u => u.id === userId);
+      if (user) {
+        for (const key of user.apiKeys) {
+          await fetch('/api/admin/keys', { method: 'DELETE', headers: { 'Content-Type': 'application/json', ...adminHeaders }, body: JSON.stringify({ keyId: key.id }) });
+        }
+      }
+      setUsers(prev => prev.filter(u => u.id !== userId));
+      showToast(`User "${userName}" dihapus`);
+    } catch { showToast('Gagal hapus user'); }
+  };
+
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedKey(text);
+    setTimeout(() => setCopiedKey(''), 2000);
+  };
+
+  const totalUsers = users.length;
+  const totalKeys = users.reduce((acc, u) => acc + u.apiKeys.length, 0);
+  const activeKeys = users.reduce((acc, u) => acc + u.apiKeys.filter(k => k.isActive).length, 0);
+  const expiredKeys = users.reduce((acc, u) => acc + u.apiKeys.filter(k => k.expiresAt && new Date(k.expiresAt) < new Date()).length, 0);
+
+  const filteredUsers = users.filter(u =>
+    !searchQuery || (u.name || '').toLowerCase().includes(searchQuery.toLowerCase()) || (u.phone || '').includes(searchQuery)
+  );
+
   return (
     <div className="space-y-6">
-      <ModuleHeader icon={<Crown className="w-5 h-5" />} color="from-amber-500 to-orange-500" title="Admin Panel" subtitle="Manage users & API keys" />
+      <ModuleHeader icon={<Crown className="w-5 h-5" />} color="from-amber-500 to-orange-500" title="Admin Control Panel" subtitle="Kelola user, API key & akses" />
 
-      <Card className="border-amber-500/30 bg-amber-500/5">
-        <CardContent className="p-4">
-          <h3 className="text-sm font-semibold mb-3">Create New User</h3>
-          <div className="flex flex-col sm:flex-row gap-3">
-            <Input placeholder="Name" value={newUserName} onChange={e => setNewUserName(e.target.value)} className="bg-card/50" />
-            <Input placeholder="Phone (optional)" value={newUserPhone} onChange={e => setNewUserPhone(e.target.value)} className="bg-card/50" />
-            <select value={newKeyPlan} onChange={e => setNewKeyPlan(e.target.value)} className="bg-card/50 border border-border/50 rounded-md px-3 py-2 text-sm">
-              <option value="free">Free</option>
-              <option value="pro">Pro</option>
-              <option value="enterprise">Enterprise</option>
-            </select>
-            <Button onClick={createUser} disabled={creating} className="bg-amber-600 hover:bg-amber-700 text-white">
-              {creating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4 mr-2" />}Create
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+      {/* Toast */}
+      {toast && (
+        <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="fixed top-4 right-4 z-50 px-4 py-2 rounded-lg bg-amber-500/90 text-white text-sm font-medium shadow-lg">
+          {toast}
+        </motion.div>
+      )}
 
-      {loading ? (
-        <div className="flex justify-center py-8"><Loader2 className="w-8 h-8 animate-spin text-amber-400" /></div>
-      ) : (
-        <div className="space-y-3">
-          {users.map(user => (
-            <Card key={user.id} className="border-border/30">
-              <CardContent className="p-4">
-                <div className="flex items-center justify-between mb-2">
-                  <div>
-                    <div className="font-medium">{user.name || 'Unnamed'}</div>
-                    <div className="text-xs text-muted-foreground">{user.phone || 'No phone'}</div>
-                  </div>
+      {/* Stats */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div className="p-4 rounded-xl border border-amber-500/30 bg-amber-500/5">
+          <Users className="w-5 h-5 text-amber-400 mb-1" />
+          <div className="text-2xl font-bold">{totalUsers}</div>
+          <div className="text-xs text-muted-foreground">Total Users</div>
+        </div>
+        <div className="p-4 rounded-xl border border-cyan-500/30 bg-cyan-500/5">
+          <Key className="w-5 h-5 text-cyan-400 mb-1" />
+          <div className="text-2xl font-bold">{totalKeys}</div>
+          <div className="text-xs text-muted-foreground">Total Keys</div>
+        </div>
+        <div className="p-4 rounded-xl border border-emerald-500/30 bg-emerald-500/5">
+          <CheckCircle2 className="w-5 h-5 text-emerald-400 mb-1" />
+          <div className="text-2xl font-bold">{activeKeys}</div>
+          <div className="text-xs text-muted-foreground">Active Keys</div>
+        </div>
+        <div className="p-4 rounded-xl border border-red-500/30 bg-red-500/5">
+          <XCircle className="w-5 h-5 text-red-400 mb-1" />
+          <div className="text-2xl font-bold">{expiredKeys}</div>
+          <div className="text-xs text-muted-foreground">Expired</div>
+        </div>
+      </div>
+
+      {/* Tabs */}
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <TabsList className="bg-card/50">
+          <TabsTrigger value="users" className="data-[state=active]:bg-amber-500/20 data-[state=active]:text-amber-400"><Users className="w-3 h-3 mr-1" />Users ({totalUsers})</TabsTrigger>
+          <TabsTrigger value="create" className="data-[state=active]:bg-emerald-500/20 data-[state=active]:text-emerald-400"><Plus className="w-3 h-3 mr-1" />Create User</TabsTrigger>
+          <TabsTrigger value="keys" className="data-[state=active]:bg-cyan-500/20 data-[state=active]:text-cyan-400"><Key className="w-3 h-3 mr-1" />All Keys ({totalKeys})</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="create" className="mt-4">
+          <Card className="border-emerald-500/30 bg-emerald-500/5">
+            <CardHeader className="pb-3"><CardTitle className="text-sm flex items-center gap-2 text-emerald-400"><Plus className="w-4 h-4" /> Buat User Baru</CardTitle></CardHeader>
+            <CardContent className="space-y-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div><label className="text-xs text-muted-foreground mb-1 block">Nama*</label><Input placeholder="Nama user" value={newUserName} onChange={e => setNewUserName(e.target.value)} className="bg-card/50" /></div>
+                <div><label className="text-xs text-muted-foreground mb-1 block">Phone (opsional)</label><Input placeholder="08xxxxxxxxxx" value={newUserPhone} onChange={e => setNewUserPhone(e.target.value)} className="bg-card/50" /></div>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="text-xs text-muted-foreground mb-1 block">Plan*</label>
+                  <select value={newKeyPlan} onChange={e => setNewKeyPlan(e.target.value)} className="w-full bg-card/50 border border-border/50 rounded-md px-3 py-2 text-sm">
+                    <option value="7days">7 Hari</option>
+                    <option value="30days">30 Hari</option>
+                    <option value="90days">90 Hari</option>
+                    <option value="lifetime">Lifetime</option>
+                  </select>
                 </div>
-                <div className="space-y-1">
-                  {user.apiKeys?.map(key => (
-                    <div key={key.key} className="flex items-center gap-2 text-xs font-mono bg-card/50 p-2 rounded">
-                      <Badge className={`${key.isActive ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'} text-[9px]`}>{key.isActive ? 'Active' : 'Inactive'}</Badge>
-                      <Badge variant="outline" className="text-[9px]">{key.plan}</Badge>
-                      <span className="text-muted-foreground truncate flex-1">{key.key}</span>
+                <div className="flex items-end">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" checked={newKeyAdmin} onChange={e => setNewKeyAdmin(e.target.checked)} className="w-4 h-4 rounded" />
+                    <span className="text-sm font-medium text-amber-400">Admin Key</span>
+                  </label>
+                </div>
+                <div className="flex items-end">
+                  <Button onClick={createUser} disabled={creating || !newUserName.trim()} className="w-full bg-emerald-600 hover:bg-emerald-700 text-white">
+                    {creating ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Plus className="w-4 h-4 mr-2" />}Buat User
+                  </Button>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="users" className="mt-4">
+          <div className="mb-3">
+            <Input placeholder="Cari user (nama/phone)..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="bg-card/50 max-w-sm" />
+          </div>
+          {loading ? (
+            <div className="flex justify-center py-8"><Loader2 className="w-8 h-8 animate-spin text-amber-400" /></div>
+          ) : filteredUsers.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground">Tidak ada user ditemukan</div>
+          ) : (
+            <div className="space-y-3 max-h-[600px] overflow-y-auto">
+              {filteredUsers.map(user => (
+                <Card key={user.id} className="border-border/30 hover:border-amber-500/20 transition-all">
+                  <CardContent className="p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-full bg-amber-500/20 flex items-center justify-center text-amber-400 font-bold text-lg">
+                          {(user.name || 'U').charAt(0).toUpperCase()}
+                        </div>
+                        <div>
+                          <div className="font-medium">{user.name || 'Unnamed'}</div>
+                          <div className="text-xs text-muted-foreground">{user.phone || 'No phone'}</div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Badge variant="outline" className="text-[10px]">{user.apiKeys.length} key(s)</Badge>
+                        <Button variant="ghost" size="sm" onClick={() => addKeyToUser(user.id, '30days', false)} className="text-cyan-400 hover:text-cyan-300 h-7 px-2 text-xs">
+                          <Plus className="w-3 h-3 mr-1" />Tambah Key
+                        </Button>
+                        <Button variant="ghost" size="sm" onClick={() => deleteUser(user.id, user.name || 'Unnamed')} className="text-red-400 hover:text-red-300 hover:bg-red-500/10 h-7 px-2">
+                          <X className="w-3 h-3" />
+                        </Button>
+                      </div>
                     </div>
-                  ))}
+                    <div className="space-y-1.5">
+                      {user.apiKeys.map(key => {
+                        const isExpired = key.expiresAt && new Date(key.expiresAt) < new Date();
+                        const isAdminKey = key.key.startsWith('recon-admin-');
+                        return (
+                          <div key={key.id} className={`flex items-center gap-2 text-xs p-2.5 rounded-lg border ${key.isActive && !isExpired ? 'border-emerald-500/20 bg-emerald-500/5' : 'border-red-500/20 bg-red-500/5'}`}>
+                            <Badge className={`${key.isActive && !isExpired ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'} text-[9px]`}>
+                              {key.isActive && !isExpired ? 'Active' : isExpired ? 'Expired' : 'Inactive'}
+                            </Badge>
+                            <Badge variant="outline" className="text-[9px]">{key.plan}</Badge>
+                            {isAdminKey && <Badge className="bg-amber-500/20 text-amber-400 border-amber-500/30 text-[9px]">Admin</Badge>}
+                            <span className="font-mono text-muted-foreground truncate flex-1">{key.key}</span>
+                            <button onClick={() => copyToClipboard(key.key)} className="text-muted-foreground hover:text-foreground p-1">
+                              {copiedKey === key.key ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                            </button>
+                            <button onClick={() => toggleKey(key.id, key.isActive)} className={`p-1 ${key.isActive ? 'text-red-400 hover:text-red-300' : 'text-emerald-400 hover:text-emerald-300'}`}>
+                              {key.isActive ? <ShieldX className="w-3 h-3" /> : <ShieldCheck className="w-3 h-3" />}
+                            </button>
+                            <button onClick={() => deleteKey(key.id)} className="text-red-400 hover:text-red-300 p-1"><X className="w-3 h-3" /></button>
+                            {key.expiresAt && <span className="text-[9px] text-muted-foreground whitespace-nowrap">s/d {new Date(key.expiresAt).toLocaleDateString('id-ID')}</span>}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
+        </TabsContent>
+
+        <TabsContent value="keys" className="mt-4">
+          {loading ? (
+            <div className="flex justify-center py-8"><Loader2 className="w-8 h-8 animate-spin text-amber-400" /></div>
+          ) : (
+            <Card className="border-border/30">
+              <CardHeader className="pb-3"><CardTitle className="text-sm flex items-center gap-2"><Key className="w-4 h-4 text-cyan-400" /> Semua API Keys</CardTitle></CardHeader>
+              <CardContent>
+                <div className="space-y-1.5 max-h-[500px] overflow-y-auto">
+                  {users.flatMap(u => u.apiKeys.map(k => ({ ...k, userName: u.name, userPhone: u.phone }))).map(key => {
+                    const isExpired = key.expiresAt && new Date(key.expiresAt) < new Date();
+                    const isAdminKey = key.key.startsWith('recon-admin-');
+                    return (
+                      <div key={key.id} className={`flex items-center gap-2 text-xs p-2 rounded-lg border ${key.isActive && !isExpired ? 'border-emerald-500/20 bg-emerald-500/5' : 'border-red-500/20 bg-red-500/5'}`}>
+                        <Badge className={`${key.isActive && !isExpired ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'} text-[9px]`}>
+                          {key.isActive && !isExpired ? 'Active' : isExpired ? 'Expired' : 'Off'}
+                        </Badge>
+                        <Badge variant="outline" className="text-[9px]">{key.plan}</Badge>
+                        {isAdminKey && <Badge className="bg-amber-500/20 text-amber-400 border-amber-500/30 text-[9px]">👑</Badge>}
+                        <span className="text-muted-foreground w-20 truncate">{key.userName || 'N/A'}</span>
+                        <span className="font-mono text-muted-foreground truncate flex-1">{key.key}</span>
+                        <button onClick={() => copyToClipboard(key.key)} className="text-muted-foreground hover:text-foreground p-1">
+                          {copiedKey === key.key ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                        </button>
+                        <button onClick={() => toggleKey(key.id, key.isActive)} className={`p-1 ${key.isActive ? 'text-red-400' : 'text-emerald-400'}`}>
+                          {key.isActive ? <ShieldX className="w-3 h-3" /> : <ShieldCheck className="w-3 h-3" />}
+                        </button>
+                        <button onClick={() => deleteKey(key.id)} className="text-red-400 p-1"><X className="w-3 h-3" /></button>
+                      </div>
+                    );
+                  })}
                 </div>
               </CardContent>
             </Card>
-          ))}
-        </div>
-      )}
+          )}
+        </TabsContent>
+      </Tabs>
+
+      {/* Back to Dashboard */}
+      <div className="flex justify-center">
+        <Button variant="outline" onClick={onLogout} className="border-red-500/30 text-red-400 hover:bg-red-500/10">
+          <LogOut className="w-4 h-4 mr-2" />Logout
+        </Button>
+      </div>
     </div>
   );
 }
