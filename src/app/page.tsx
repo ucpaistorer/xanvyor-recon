@@ -190,6 +190,34 @@ function ModuleHeader({ icon, color, title, subtitle }: { icon: React.ReactNode;
   );
 }
 
+// ============================================================
+// Map Embed Component - OpenStreetMap iframe
+// ============================================================
+function MapEmbed({ lat, lng, label, className }: { lat: number; lng: number; label?: string; className?: string }) {
+  if (!lat || !lng || (lat === 0 && lng === 0)) return null;
+  const mapUrl = `https://www.openstreetmap.org/export/embed.html?bbox=${lng-0.015}%2C${lat-0.01}%2C${lng+0.015}%2C${lat+0.01}&layer=mapnik&marker=${lat}%2C${lng}`;
+  return (
+    <Card className={`border-emerald-500/30 bg-emerald-500/5 overflow-hidden ${className || ''}`}>
+      <CardContent className="p-0">
+        {label && <div className="px-4 pt-3 pb-1 text-sm font-medium text-emerald-400 flex items-center gap-2"><MapPin className="w-4 h-4" />{label}</div>}
+        <iframe
+          src={mapUrl}
+          className="w-full border-0"
+          style={{ height: '280px' }}
+          loading="lazy"
+          title="Location Map"
+          allowFullScreen
+        />
+        <div className="px-4 py-2 flex items-center gap-3 text-xs text-muted-foreground">
+          <span>📍 {lat.toFixed(6)}, {lng.toFixed(6)}</span>
+          <a href={`https://www.google.com/maps?q=${lat},${lng}`} target="_blank" rel="noopener noreferrer" className="text-emerald-400 hover:underline">Google Maps</a>
+          <a href={`https://www.openstreetmap.org/?mlat=${lat}&mlon=${lng}#map=15/${lat}/${lng}`} target="_blank" rel="noopener noreferrer" className="text-emerald-400 hover:underline">OSM</a>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 // Generic hook for API calls
 function useOSINTSearch<T>() {
   const [loading, setLoading] = useState(false);
@@ -1225,16 +1253,19 @@ function WifiScanModule() {
   const [location, setLocation] = useState('');
   const [connectedSSID, setConnectedSSID] = useState('');
   const [gpsCoords, setGpsCoords] = useState<{ lat: number; lng: number } | null>(null);
-  const [gpsLoading, setGpsLoading] = useState(false);
-  const { loading, result, error, search } = useOSINTSearch<WifiScanResult>();
-
-  const detectGPS = useCallback(() => {
-    if (!navigator.geolocation) { return; }
-    setGpsLoading(true);
+  // Auto-detect GPS on mount - initialize with loading state
+  const [gpsLoading, setGpsLoading] = useState(() => typeof navigator !== 'undefined' && !!navigator.geolocation);
+  const gpsInitialized = useRef(false);
+  useEffect(() => {
+    if (!navigator.geolocation || gpsInitialized.current) return;
+    gpsInitialized.current = true;
     navigator.geolocation.getCurrentPosition(
-      (pos) => { setGpsCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude }); setGpsLoading(false); },
+      (pos) => {
+        setGpsCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+        setGpsLoading(false);
+      },
       () => { setGpsLoading(false); },
-      { enableHighAccuracy: true, timeout: 10000 }
+      { enableHighAccuracy: true, timeout: 15000 }
     );
   }, []);
 
@@ -1256,6 +1287,31 @@ function WifiScanModule() {
   return (
     <div className="space-y-6">
       <ModuleHeader icon={<Wifi className="w-5 h-5" />} color="from-purple-500 to-violet-500" title="WiFi Scanner" subtitle="Scan & analisis jaringan WiFi sekitar" />
+      {/* Auto GPS indicator */}
+      {gpsLoading && (
+        <Card className="border-emerald-500/20 bg-emerald-500/5">
+          <CardContent className="p-3 flex items-center gap-2">
+            <Loader2 className="w-4 h-4 animate-spin text-emerald-400" />
+            <span className="text-sm text-emerald-400">Mendeteksi lokasi GPS otomatis...</span>
+          </CardContent>
+        </Card>
+      )}
+      {gpsCoords && !loading && !result && (
+        <Card className="border-emerald-500/20 bg-emerald-500/5">
+          <CardContent className="p-3 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <MapPin className="w-4 h-4 text-emerald-400" />
+              <span className="text-sm text-emerald-400">GPS Terdeteksi: {gpsCoords.lat.toFixed(4)}, {gpsCoords.lng.toFixed(4)}</span>
+            </div>
+            <Button onClick={handleScan} size="sm" className="bg-purple-600 hover:bg-purple-700 text-white">
+              <Wifi className="w-3 h-3 mr-1" />Scan Sekarang
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+      {gpsCoords && !loading && !result && (
+        <MapEmbed lat={gpsCoords.lat} lng={gpsCoords.lng} label="Lokasi GPS Anda" />
+      )}
       <Card className="border-purple-500/20 bg-purple-500/5">
         <CardContent className="p-4 space-y-3">
           <div className="flex gap-3">
@@ -1271,15 +1327,11 @@ function WifiScanModule() {
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Button onClick={() => detectGPS()} disabled={gpsLoading || loading} variant="outline" className="border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10">
-              {gpsLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <MapPin className="w-4 h-4 mr-2" />}
-              {gpsCoords ? `GPS: ${gpsCoords.lat.toFixed(4)}, ${gpsCoords.lng.toFixed(4)}` : 'Deteksi GPS'}
-            </Button>
-            <Button onClick={() => doSearch('ip')} disabled={loading} variant="outline" className="border-cyan-500/30 text-cyan-400 hover:bg-cyan-500/10">
-              <Globe className="w-4 h-4 mr-2" />Deteksi IP
-            </Button>
             <Button onClick={handleScan} disabled={loading} className="bg-purple-600 hover:bg-purple-700 text-white min-w-[120px]">
               {loading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Wifi className="w-4 h-4 mr-2" />}{loading ? 'Scanning' : 'Scan WiFi'}
+            </Button>
+            <Button onClick={() => doSearch('ip')} disabled={loading} variant="outline" className="border-cyan-500/30 text-cyan-400 hover:bg-cyan-500/10">
+              <Globe className="w-4 h-4 mr-2" />Pakai IP Location
             </Button>
           </div>
         </CardContent>
@@ -1295,14 +1347,17 @@ function WifiScanModule() {
             <div className="p-3 rounded-lg border border-border/30 bg-card/30"><div className="text-xs text-muted-foreground">Rentan</div><div className="text-2xl font-bold text-red-400">{result.vulnerableNetworks}</div></div>
           </div>
           {result.mapLocation && (
-            <Card className="border-purple-500/30 bg-purple-500/5">
-              <CardContent className="p-4">
-                <div className="text-sm font-medium mb-1">📍 {result.mapLocation.fullAddress || 'Lokasi terdeteksi'}</div>
-                <div className="text-xs text-muted-foreground">Metode: {result.locationMethod} | GPS: {result.gpsDetected ? '✅' : '❌'}</div>
-                {result.ipLocation && <div className="text-xs text-muted-foreground mt-1">IP Location: {result.ipLocation.city}, {result.ipLocation.region} | ISP: {result.ipLocation.isp}</div>}
-                {result.connectedSSID && <div className="text-xs text-purple-400 mt-1">🔗 Terhubung: {result.connectedSSID}</div>}
-              </CardContent>
-            </Card>
+            <>
+              <Card className="border-purple-500/30 bg-purple-500/5">
+                <CardContent className="p-4">
+                  <div className="text-sm font-medium mb-1">📍 {result.mapLocation.fullAddress || 'Lokasi terdeteksi'}</div>
+                  <div className="text-xs text-muted-foreground">Metode: {result.locationMethod} | GPS: {result.gpsDetected ? '✅' : '❌'}</div>
+                  {result.ipLocation && <div className="text-xs text-muted-foreground mt-1">IP Location: {result.ipLocation.city}, {result.ipLocation.region} | ISP: {result.ipLocation.isp}</div>}
+                  {result.connectedSSID && <div className="text-xs text-purple-400 mt-1">🔗 Terhubung: {result.connectedSSID}</div>}
+                </CardContent>
+              </Card>
+              <MapEmbed lat={result.mapLocation.lat} lng={result.mapLocation.lng} label={result.mapLocation.fullAddress || 'Lokasi Scan WiFi'} />
+            </>
           )}
           <div className="space-y-2 max-h-[500px] overflow-y-auto">
             {result.networks?.map((n, i) => (
@@ -1644,6 +1699,8 @@ function VehicleModule() {
               {result.regionDescription && <div className="text-xs text-muted-foreground mt-2">📍 {result.regionDescription}</div>}
             </CardContent>
           </Card>
+          {/* Region Map for Vehicle */}
+          <MapEmbed lat={result.regionCode === 'B' ? -6.2088 : result.regionCode === 'D' ? -6.9175 : result.regionCode === 'T' ? -7.2575 : result.regionCode === 'H' ? -6.9666 : result.regionCode === 'L' ? -7.5755 : result.regionCode === 'F' ? -6.2349 : result.regionCode === 'DD' ? -8.6705 : result.regionCode === 'AE' ? -7.6303 : result.regionCode === 'BA' ? -7.7517 : result.regionCode === 'DA' ? -3.4433 : result.regionCode === 'KI' ? -1.2654 : result.regionCode === 'PA' ? 1.4748 : result.regionCode === 'PI' ? -5.1477 : result.regionCode === 'EA' ? -8.5830 : result.regionCode === 'ED' ? -10.1772 : result.regionCode === 'AB' ? -6.1753 : result.regionCode === 'Z' ? -6.1753 : -6.2088} lng={result.regionCode === 'B' ? 106.8456 : result.regionCode === 'D' ? 107.6191 : result.regionCode === 'T' ? 112.7521 : result.regionCode === 'H' ? 110.4196 : result.regionCode === 'L' ? 110.8243 : result.regionCode === 'F' ? 106.9905 : result.regionCode === 'DD' ? 115.2126 : result.regionCode === 'AE' ? 111.5181 : result.regionCode === 'BA' ? 113.7213 : result.regionCode === 'DA' ? 114.8353 : result.regionCode === 'KI' ? 116.8311 : result.regionCode === 'PA' ? 124.8421 : result.regionCode === 'PI' ? 119.4327 : result.regionCode === 'EA' ? 116.1183 : result.regionCode === 'ED' ? 123.6030 : result.regionCode === 'AB' ? 106.8456 : result.regionCode === 'Z' ? 106.8456 : 106.8456} label={`Wilayah Plat ${result.regionCode}: ${result.region}, ${result.province}`} />
           {result.vehicleInfo && (result.vehicleInfo.brand || result.vehicleInfo.model) && (
             <Card className="border-cyan-500/30 bg-cyan-500/5">
               <CardHeader className="pb-2"><CardTitle className="text-sm flex items-center gap-2 text-cyan-400"><Car className="w-4 h-4" /> Info Kendaraan</CardTitle></CardHeader>
@@ -1820,6 +1877,14 @@ function ImeiModule() {
                 </div>
               </CardContent>
             </Card>
+          )}
+          {/* TAC Origin Map */}
+          {result.tacInfo && result.tacInfo.countryFromTAC && (
+            <MapEmbed
+              lat={result.tacInfo.countryFromTAC === 'USA' ? 37.0902 : result.tacInfo.countryFromTAC === 'South Korea' ? 35.9078 : result.tacInfo.countryFromTAC === 'China' ? 35.8617 : result.tacInfo.countryFromTAC === 'Finland' ? 61.9241 : result.tacInfo.countryFromTAC === 'Japan' ? 36.2048 : result.tacInfo.countryFromTAC === 'Canada' ? 56.1304 : result.tacInfo.countryFromTAC === 'USA/China' ? 35.8617 : 0}
+              lng={result.tacInfo.countryFromTAC === 'USA' ? -95.7129 : result.tacInfo.countryFromTAC === 'South Korea' ? 127.7669 : result.tacInfo.countryFromTAC === 'China' ? 104.1954 : result.tacInfo.countryFromTAC === 'Finland' ? 25.7482 : result.tacInfo.countryFromTAC === 'Japan' ? 138.2529 : result.tacInfo.countryFromTAC === 'Canada' ? -106.3468 : result.tacInfo.countryFromTAC === 'USA/China' ? 104.1954 : 0}
+              label={`TAC Origin: ${result.tacInfo.countryFromTAC} | Brand: ${result.tacInfo.brandFromTAC || 'Unknown'}`}
+            />
           )}
 
           {/* Stolen/Lost Status */}
@@ -2554,22 +2619,23 @@ function PhoneLocModule() {
       {result && (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
           {result.location && (
-            <Card className="border-rose-500/30 bg-rose-500/5">
-              <CardContent className="p-4">
-                <div className="flex items-center gap-2 mb-2"><MapPin className="w-5 h-5 text-rose-400" /><div className="text-lg font-bold">{result.location.fullAddress || 'Location Found'}</div></div>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                  <div><div className="text-xs text-muted-foreground">City</div><div className="text-sm font-medium">{result.location.city}</div></div>
-                  <div><div className="text-xs text-muted-foreground">Province</div><div className="text-sm font-medium">{result.location.province}</div></div>
-                  <div><div className="text-xs text-muted-foreground">Confidence</div><div className="text-sm font-medium">{result.location.locationConfidence}</div></div>
-                  <div><div className="text-xs text-muted-foreground">Accuracy</div><div className="text-sm font-medium">{result.location.accuracy}</div></div>
-                </div>
-                {result.location.nearbyLandmarks?.length > 0 && <div className="flex flex-wrap gap-1 mt-2">{result.location.nearbyLandmarks.map((l, i) => <Badge key={i} variant="outline" className="text-xs">{l}</Badge>)}</div>}
-                <div className="flex gap-2 mt-2">
-                  {result.location.mapUrl && <a href={result.location.mapUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-rose-400 hover:underline">Google Maps</a>}
-                  {result.location.openStreetMapUrl && <a href={result.location.openStreetMapUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-rose-400 hover:underline">OpenStreetMap</a>}
-                </div>
-              </CardContent>
-            </Card>
+            <>
+              <Card className="border-rose-500/30 bg-rose-500/5">
+                <CardContent className="p-4">
+                  <div className="flex items-center gap-2 mb-2"><MapPin className="w-5 h-5 text-rose-400" /><div className="text-lg font-bold">{result.location.fullAddress || 'Location Found'}</div></div>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <div><div className="text-xs text-muted-foreground">City</div><div className="text-sm font-medium">{result.location.city}</div></div>
+                    <div><div className="text-xs text-muted-foreground">Province</div><div className="text-sm font-medium">{result.location.province}</div></div>
+                    <div><div className="text-xs text-muted-foreground">Confidence</div><div className="text-sm font-medium">{result.location.locationConfidence}</div></div>
+                    <div><div className="text-xs text-muted-foreground">Accuracy</div><div className="text-sm font-medium">{result.location.accuracy}</div></div>
+                  </div>
+                  {result.location.nearbyLandmarks?.length > 0 && <div className="flex flex-wrap gap-1 mt-2">{result.location.nearbyLandmarks.map((l, i) => <Badge key={i} variant="outline" className="text-xs">{l}</Badge>)}</div>}
+                </CardContent>
+              </Card>
+              {result.location.latitude && result.location.longitude && (
+                <MapEmbed lat={result.location.latitude} lng={result.location.longitude} label={`Lokasi HP: ${result.location.city || result.location.region || 'Terdeteksi'}`} />
+              )}
+            </>
           )}
           {result.carrierInfo && (
             <Card className="border-pink-500/30 bg-pink-500/5">
@@ -2887,7 +2953,7 @@ function AdminModule({ auth, onLogout }: { auth: AuthState; onLogout: () => void
   const [newKeyAdmin, setNewKeyAdmin] = useState(false);
   const [creating, setCreating] = useState(false);
   const [toast, setToast] = useState('');
-  const [activeTab, setActiveTab] = useState('users');
+  const [activeTab, setActiveTab] = useState('overview');
   const [copiedKey, setCopiedKey] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -2993,6 +3059,7 @@ function AdminModule({ auth, onLogout }: { auth: AuthState; onLogout: () => void
   const totalKeys = users.reduce((acc, u) => acc + u.apiKeys.length, 0);
   const activeKeys = users.reduce((acc, u) => acc + u.apiKeys.filter(k => k.isActive).length, 0);
   const expiredKeys = users.reduce((acc, u) => acc + u.apiKeys.filter(k => k.expiresAt && new Date(k.expiresAt) < new Date()).length, 0);
+  const adminKeys = users.reduce((acc, u) => acc + u.apiKeys.filter(k => k.key.startsWith('recon-admin-')).length, 0);
 
   const filteredUsers = users.filter(u =>
     !searchQuery || (u.name || '').toLowerCase().includes(searchQuery.toLowerCase()) || (u.phone || '').includes(searchQuery)
@@ -3000,7 +3067,24 @@ function AdminModule({ auth, onLogout }: { auth: AuthState; onLogout: () => void
 
   return (
     <div className="space-y-6">
-      <ModuleHeader icon={<Crown className="w-5 h-5" />} color="from-amber-500 to-orange-500" title="Admin Control Panel" subtitle="Kelola user, API key & akses" />
+      {/* Admin Header */}
+      <div className="relative overflow-hidden rounded-2xl border border-amber-500/20 bg-gradient-to-br from-amber-500/10 via-card to-orange-500/10 p-4 sm:p-6">
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-amber-500/10 via-transparent to-transparent" />
+        <div className="relative z-10">
+          <div className="flex items-center gap-3 mb-2">
+            <div className="p-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 text-white"><Crown className="w-6 h-6" /></div>
+            <div>
+              <h2 className="text-2xl font-bold">Admin Control Panel</h2>
+              <p className="text-sm text-muted-foreground">Kelola user, API key & akses platform</p>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2 mt-3">
+            <Badge className="bg-amber-500/20 text-amber-400 border-amber-500/30"><Crown className="w-3 h-3 mr-1" />Admin</Badge>
+            <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30"><Activity className="w-3 h-3 mr-1" />System Online</Badge>
+            <span className="text-xs text-muted-foreground ml-2">Logged in as: {auth.user?.name || 'Admin'}</span>
+          </div>
+        </div>
+      </div>
 
       {/* Toast */}
       {toast && (
@@ -3010,7 +3094,7 @@ function AdminModule({ auth, onLogout }: { auth: AuthState; onLogout: () => void
       )}
 
       {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
         <div className="p-4 rounded-xl border border-amber-500/30 bg-amber-500/5">
           <Users className="w-5 h-5 text-amber-400 mb-1" />
           <div className="text-2xl font-bold">{totalUsers}</div>
@@ -3031,15 +3115,70 @@ function AdminModule({ auth, onLogout }: { auth: AuthState; onLogout: () => void
           <div className="text-2xl font-bold">{expiredKeys}</div>
           <div className="text-xs text-muted-foreground">Expired</div>
         </div>
+        <div className="p-4 rounded-xl border border-purple-500/30 bg-purple-500/5">
+          <ShieldAlert className="w-5 h-5 text-purple-400 mb-1" />
+          <div className="text-2xl font-bold">{adminKeys}</div>
+          <div className="text-xs text-muted-foreground">Admin Keys</div>
+        </div>
       </div>
+
+      {/* System Status */}
+      <Card className="border-emerald-500/20 bg-emerald-500/5">
+        <CardContent className="p-4">
+          <div className="text-sm font-semibold text-emerald-400 mb-2 flex items-center gap-2"><Activity className="w-4 h-4" /> System Status</div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div className="flex items-center gap-2 text-xs"><div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" /><span>API Server: Online</span></div>
+            <div className="flex items-center gap-2 text-xs"><div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" /><span>AI Engine: Active</span></div>
+            <div className="flex items-center gap-2 text-xs"><div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" /><span>Web Search: Online</span></div>
+            <div className="flex items-center gap-2 text-xs"><div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" /><span>Database: Connected</span></div>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="bg-card/50">
-          <TabsTrigger value="users" className="data-[state=active]:bg-amber-500/20 data-[state=active]:text-amber-400"><Users className="w-3 h-3 mr-1" />Users ({totalUsers})</TabsTrigger>
-          <TabsTrigger value="create" className="data-[state=active]:bg-emerald-500/20 data-[state=active]:text-emerald-400"><Plus className="w-3 h-3 mr-1" />Create User</TabsTrigger>
-          <TabsTrigger value="keys" className="data-[state=active]:bg-cyan-500/20 data-[state=active]:text-cyan-400"><Key className="w-3 h-3 mr-1" />All Keys ({totalKeys})</TabsTrigger>
+          <TabsTrigger value="overview" className="data-[state=active]:bg-amber-500/20 data-[state=active]:text-amber-400"><Activity className="w-3 h-3 mr-1" />Overview</TabsTrigger>
+          <TabsTrigger value="users" className="data-[state=active]:bg-cyan-500/20 data-[state=active]:text-cyan-400"><Users className="w-3 h-3 mr-1" />Users ({totalUsers})</TabsTrigger>
+          <TabsTrigger value="create" className="data-[state=active]:bg-emerald-500/20 data-[state=active]:text-emerald-400"><Plus className="w-3 h-3 mr-1" />Create</TabsTrigger>
+          <TabsTrigger value="keys" className="data-[state=active]:bg-purple-500/20 data-[state=active]:text-purple-400"><Key className="w-3 h-3 mr-1" />Keys ({totalKeys})</TabsTrigger>
         </TabsList>
+
+        <TabsContent value="overview" className="mt-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <Card className="border-amber-500/30 bg-amber-500/5">
+              <CardHeader className="pb-2"><CardTitle className="text-sm flex items-center gap-2 text-amber-400"><Users className="w-4 h-4" /> Recent Users</CardTitle></CardHeader>
+              <CardContent>
+                <div className="space-y-2 max-h-64 overflow-y-auto">
+                  {users.slice(0, 8).map(user => (
+                    <div key={user.id} className="flex items-center gap-3 p-2 rounded-lg border border-border/20 bg-card/30">
+                      <div className="w-8 h-8 rounded-full bg-amber-500/20 flex items-center justify-center text-amber-400 font-bold text-sm">{(user.name || 'U').charAt(0).toUpperCase()}</div>
+                      <div className="flex-1 min-w-0"><div className="text-sm font-medium truncate">{user.name || 'Unnamed'}</div><div className="text-[10px] text-muted-foreground">{user.apiKeys.length} key(s) | {user.phone || 'No phone'}</div></div>
+                      <Badge variant="outline" className="text-[9px]">{user.apiKeys.filter(k => k.isActive).length} active</Badge>
+                    </div>
+                  ))}
+                  {users.length === 0 && <div className="text-center py-4 text-muted-foreground text-sm">No users yet</div>}
+                </div>
+              </CardContent>
+            </Card>
+            <Card className="border-cyan-500/30 bg-cyan-500/5">
+              <CardHeader className="pb-2"><CardTitle className="text-sm flex items-center gap-2 text-cyan-400"><Key className="w-4 h-4" /> Key Distribution</CardTitle></CardHeader>
+              <CardContent>
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between"><span className="text-sm">Active Keys</span><span className="text-sm font-bold text-emerald-400">{activeKeys}</span></div>
+                  <Progress value={totalKeys > 0 ? (activeKeys / totalKeys) * 100 : 0} className="h-2" />
+                  <div className="flex items-center justify-between"><span className="text-sm">Expired Keys</span><span className="text-sm font-bold text-red-400">{expiredKeys}</span></div>
+                  <Progress value={totalKeys > 0 ? (expiredKeys / totalKeys) * 100 : 0} className="h-2" />
+                  <div className="flex items-center justify-between"><span className="text-sm">Admin Keys</span><span className="text-sm font-bold text-purple-400">{adminKeys}</span></div>
+                  <Progress value={totalKeys > 0 ? (adminKeys / totalKeys) * 100 : 0} className="h-2" />
+                  <Separator className="my-2" />
+                  <div className="text-xs text-muted-foreground">Platform: XANVYOR RECON | Tools: 32 | AI Engines: 4</div>
+                  <div className="text-xs text-muted-foreground">WhatsApp: <a href="https://wa.me/6287892614294" target="_blank" rel="noopener noreferrer" className="text-emerald-400 hover:underline">+62 878-9261-4294</a></div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </TabsContent>
 
         <TabsContent value="create" className="mt-4">
           <Card className="border-emerald-500/30 bg-emerald-500/5">
