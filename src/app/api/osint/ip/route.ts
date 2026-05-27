@@ -45,18 +45,14 @@ export async function POST(request: NextRequest) {
     const reservedInfo = getReservedInfo(ip);
 
     // Sequential searches for comprehensive IP OSINT
-    const geoSearch = await safeWebSearch(`${ip} IP address geolocation ISP ASN`, 10);
-    const threatSearch = await safeWebSearch(`${ip} IP threat reputation blacklist malware botnet`, 10);
-    const vpnSearch = await safeWebSearch(`${ip} VPN proxy tor exit node detection`, 8);
-    const reverseSearch = await safeWebSearch(`${ip} reverse DNS hostname whois rdns`, 5);
-    const portSearch = await safeWebSearch(`${ip} open ports scan services`, 5);
+    const geoSearch = await safeWebSearch(`${ip} IP address geolocation ISP ASN threat reputation blacklist`, 5);
+    const vpnSearch = await safeWebSearch(`${ip} VPN proxy tor exit node detection reverse DNS hostname`, 5);
+    const portSearch = await safeWebSearch(`${ip} open ports scan services malware botnet`, 5);
 
     // Combine all search results
     const allResults = [
       ...(geoSearch as Array<Record<string, string>>),
-      ...(threatSearch as Array<Record<string, string>>),
       ...(vpnSearch as Array<Record<string, string>>),
-      ...(reverseSearch as Array<Record<string, string>>),
       ...(portSearch as Array<Record<string, string>>),
     ];
     const allText = allResults.map((r: Record<string, string>) => `${r.name ?? ''} ${r.snippet ?? ''}`.toLowerCase()).join(' ');
@@ -71,7 +67,6 @@ export async function POST(request: NextRequest) {
     else if (vpnDetected) anonymityType = 'VPN';
     else if (proxyDetected) anonymityType = 'Proxy';
 
-    // Threat level assessment from search results
     const threatKeywords = ['malware', 'botnet', 'c2', 'command and control', 'spam', 'phishing', 'brute force', 'ddos', 'scanner', 'exploit'];
     const detectedThreats = threatKeywords.filter(k => allText.includes(k));
 
@@ -82,7 +77,7 @@ export async function POST(request: NextRequest) {
 
     // Blacklist detection
     const blacklistKeywords = ['blacklist', 'blocklist', 'blocked', 'listed', 'reported'];
-    const blacklists = (threatSearch as Array<Record<string, string>>)
+    const blacklists = (geoSearch as Array<Record<string, string>>)
       .filter((r: Record<string, string>) =>
         blacklistKeywords.some(k => `${r.name ?? ''} ${r.snippet ?? ''}`.toLowerCase().includes(k))
       )
@@ -129,58 +124,18 @@ export async function POST(request: NextRequest) {
 
     // AI analysis
     const allContext = [
-      ...(geoSearch as Array<Record<string, string>>).slice(0, 3).map((r: Record<string, string>) => `[GEO] ${r.name}: ${r.snippet}`),
-      ...(threatSearch as Array<Record<string, string>>).slice(0, 3).map((r: Record<string, string>) => `[THREAT] ${r.name}: ${r.snippet}`),
+      ...(geoSearch as Array<Record<string, string>>).slice(0, 4).map((r: Record<string, string>) => `[GEO] ${r.name}: ${r.snippet}`),
       ...(vpnSearch as Array<Record<string, string>>).slice(0, 3).map((r: Record<string, string>) => `[VPN/PROXY] ${r.name}: ${r.snippet}`),
-      ...(reverseSearch as Array<Record<string, string>>).slice(0, 2).map((r: Record<string, string>) => `[RDNS] ${r.name}: ${r.snippet}`),
-      ...(portSearch as Array<Record<string, string>>).slice(0, 2).map((r: Record<string, string>) => `[PORTS] ${r.name}: ${r.snippet}`),
+      ...(portSearch as Array<Record<string, string>>).slice(0, 3).map((r: Record<string, string>) => `[PORTS] ${r.name}: ${r.snippet}`),
     ].join('\n\n');
 
     const aiAnalysis = allContext.length > 0
       ? await safeAIAnalysis(
-          `You are an elite OSINT analyst specializing in IP intelligence, cyber threat analysis, and network reconnaissance.
-Analyze the IP address intelligence data and provide a COMPREHENSIVE structured intelligence report with these sections:
+          `OSINT analyst for IP intelligence. Report with: ## 📍 GEOLOCATION & NETWORK ## 🛡️ THREAT INTELLIGENCE ## 🔒 ANONYMITY ASSESSMENT ## 🔌 PORT & SERVICE ANALYSIS ## 🔄 REVERSE DNS & HOSTNAME ## 📊 RISK ASSESSMENT ## 🎯 RECOMMENDATIONS
+Be concise. Keep each section to 2-3 lines.`,
+          `IP: ${ip} | Type: ${isV6 ? 'IPv6' : 'IPv4'} | Private: ${isPrivate} | Anonymity: ${anonymityType} | Threat: ${threatLevel}
 
-## 📍 GEOLOCATION & NETWORK
-- Geographic location (country, city, region)
-- ISP/Organization
-- ASN information
-- Network range
-
-## 🛡️ THREAT INTELLIGENCE
-- Threat reputation assessment
-- Known malicious activity
-- Botnet/malware associations
-- Blacklist status
-
-## 🔒 ANONYMITY ASSESSMENT
-- VPN/Proxy/Tor detection
-- Anonymity type and confidence
-- Hosting vs residential classification
-- VPN provider identification if applicable
-
-## 🔌 PORT & SERVICE ANALYSIS
-- Likely open ports and services
-- Service fingerprinting hints
-- Attack surface assessment
-
-## 🔄 REVERSE DNS & HOSTNAME
-- Reverse DNS resolution
-- Hostname information
-- Domain associations
-
-## 📊 RISK ASSESSMENT
-- Overall risk score (Low/Medium/High/Critical)
-- Threat level justification
-- Attack likelihood
-
-## 🎯 RECOMMENDATIONS
-- Further investigation steps
-- Monitoring recommendations
-- Risk mitigation strategies
-
-Be thorough and specific. Use emojis for section headers.`,
-          `Analyze IP address: ${ip}\nType: ${isV6 ? 'IPv6' : 'IPv4'}, Private: ${isPrivate}, Anonymity: ${anonymityType}\nThreat level: ${threatLevel}, Threats: ${detectedThreats.join(', ') || 'none'}\n\nIntelligence data:\n${allContext}\n\nProvide a comprehensive IP intelligence report.`
+${allContext.substring(0, 1500)}`
         )
       : 'No intelligence data available for this IP address.';
 
@@ -200,7 +155,7 @@ Be thorough and specific. Use emojis for section headers.`,
       blacklistCount: blacklists.length,
       detectedPorts,
       geoResults: geoData,
-      threatResults: (threatSearch as Array<Record<string, string>>).map((r: Record<string, string>) => ({
+      threatResults: (geoSearch as Array<Record<string, string>>).map((r: Record<string, string>) => ({
         url: r.url,
         title: r.name,
         snippet: r.snippet,
@@ -213,7 +168,7 @@ Be thorough and specific. Use emojis for section headers.`,
         snippet: r.snippet,
         domain: r.host_name,
       })),
-      reverseDnsResults: (reverseSearch as Array<Record<string, string>>).map((r: Record<string, string>) => ({
+      reverseDnsResults: (vpnSearch as Array<Record<string, string>>).map((r: Record<string, string>) => ({
         url: r.url,
         title: r.name,
         snippet: r.snippet,

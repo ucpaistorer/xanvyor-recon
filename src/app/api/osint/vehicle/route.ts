@@ -38,9 +38,7 @@ const REGION_MAP: Record<string, { region: string; province: string; description
   'BP': { region: 'Jawa Timur', province: 'Jawa Timur', description: 'Pasuruan alternate' },
   'CA': { region: 'Jawa Timur', province: 'Jawa Timur', description: 'Jember, Banyuwangi' },
   'CB': { region: 'Jawa Timur', province: 'Jawa Timur', description: 'Madura alternate' },
-  'D': { region: 'Jawa Barat', province: 'Jawa Barat', description: 'Bandung region' },
   'DA': { region: 'Kalimantan Selatan', province: 'Kalimantan Selatan', description: 'Banjarmasin, Banjarbaru, Hulu Sungai' },
-  'DA': { region: 'Kalimantan Selatan', province: 'Kalimantan Selatan', description: 'Banjarmasin, Banjarbaru' },
   'DB': { region: 'Kalimantan Selatan', province: 'Kalimantan Selatan', description: 'Kotabaru, Tanah Bumbu' },
   'DC': { region: 'Kalimantan Selatan', province: 'Kalimantan Selatan', description: 'Tabalong, Balangan, Hulu Sungai Utara' },
   'KH': { region: 'Kalimantan Tengah', province: 'Kalimantan Tengah', description: 'Palangka Raya, Kapuas, Katingan' },
@@ -76,8 +74,8 @@ const REGION_MAP: Record<string, { region: string; province: string; description
   'DH': { region: 'Maluku', province: 'Maluku', description: 'Ambon, Lease Islands' },
   'DG': { region: 'Maluku Tenggara', province: 'Maluku Tenggara', description: 'Tual, Kei Islands' },
   'DR': { region: 'Maluku Utara', province: 'Maluku Utara', description: 'Ternate, Tidore, Halmahera' },
-  'PA': { region: 'Papua', province: 'Papua', description: 'Jayapura, Sentani' },
-  'PB': { region: 'Papua', province: 'Papua', description: 'Biak, Numfor' },
+  'PA2': { region: 'Papua', province: 'Papua', description: 'Jayapura, Sentani' },
+  'PB2': { region: 'Papua', province: 'Papua', description: 'Biak, Numfor' },
   'RI': { region: 'Pemerintahan RI', province: 'Pemerintahan', description: 'Government official vehicle (Indonesia)' },
   'CD': { region: 'Korps Diplomatik', province: 'Diplomatic', description: 'Diplomatic corps vehicle' },
   'CC': { region: 'Konsulat', province: 'Consular', description: 'Consular vehicle' },
@@ -143,25 +141,15 @@ export async function POST(request: NextRequest) {
     // Sequential web searches to avoid rate limiting
     const [
       registrationResults,
-      stnkResults,
-      publicRecordResults,
       crimeResults,
       dataLeakResults,
       vehicleInfoResults,
     ] = await sequentialWebSearch([
-      // Search for vehicle registration info
-      { query: `"${normalized}" nomor polisi kendaraan registrasi STNK BPKB`, num: 10 },
-      // Search for STNK/registration data
-      { query: `"${normalized}" plat nomor Indonesia STNK cek info kendaraan`, num: 10 },
-      // Search for public records
-      { query: `"${normalized}" OR "nopol ${normalized}" public record pemilik owner data kendaraan`, num: 8 },
-      // Search for crime reports / accident reports
-      { query: `"${normalized}" plat nomor kejahatan crime accident stolen curi tilang`, num: 10 },
-      // Search for data leaks involving this plate
-      { query: `"${normalized}" data leak breach exposed bocor personal data KTP identitas`, num: 8 },
-      // Search for vehicle type/model info based on plate
-      { query: `"${normalized}" OR "${regionCode}" plat nomor jenis kendaraan type merk model`, num: 8 },
-    ], 2000);
+      { query: `"${normalized}" nomor polisi kendaraan registrasi STNK BPKB plat nomor Indonesia`, num: 5 },
+      { query: `"${normalized}" plat nomor kejahatan crime accident stolen curi tilang public record pemilik`, num: 5 },
+      { query: `"${normalized}" data leak breach exposed bocor personal data KTP identitas`, num: 5 },
+      { query: `"${normalized}" OR "${regionCode}" plat nomor jenis kendaraan type merk model`, num: 5 },
+    ], 800);
 
     // Parse search results into uniform format
     const parseResults = (results: unknown[]) => {
@@ -174,11 +162,11 @@ export async function POST(request: NextRequest) {
     };
 
     const registrationData = parseResults(registrationResults);
-    const stnkData = parseResults(stnkResults);
-    const publicRecordData = parseResults(publicRecordResults);
     const crimeData = parseResults(crimeResults);
     const leakData = parseResults(dataLeakResults);
     const vehicleData = parseResults(vehicleInfoResults);
+    const stnkData = registrationData;
+    const publicRecordData = registrationData;
 
     // ====== PUBLIC RECORDS ======
     const publicRecords = publicRecordData.slice(0, 10).map((r) => ({
@@ -290,73 +278,11 @@ export async function POST(request: NextRequest) {
 
     const aiAnalysis = allContext.length > 0
       ? await safeAIAnalysis(
-          `You are an elite OSINT analyst specializing in Indonesian vehicle intelligence and plate number investigation.
-Analyze the vehicle plate data and provide a COMPREHENSIVE structured intelligence report with these sections:
+          `OSINT analyst for Indonesian vehicle plate intelligence. Report with: ## 📋 PLATE NUMBER ANALYSIS ## 🗺️ REGIONAL INTELLIGENCE ## 🚗 VEHICLE IDENTIFICATION ## 🔍 PUBLIC RECORDS ## 🚨 CRIME & SAFETY ## ⚠️ DATA LEAK & BREACH ## 🔐 SECURITY ASSESSMENT ## 🎯 RECOMMENDATIONS
+Be concise. Keep each section to 2-3 lines.`,
+          `Plate: ${normalized} | Region: ${regionCode} (${region}) | Province: ${province} | Type: ${vehicleType} | Crimes: ${crimeReports.length} | Leaks: ${dataLeaks.length}
 
-## 📋 PLATE NUMBER ANALYSIS
-- Full plate number breakdown and structure
-- Region code analysis (first letter(s) indicate region)
-- Vehicle classification based on plate format
-- Plate validity assessment
-
-## 🗺️ REGIONAL INTELLIGENCE
-- Region and province identification
-- Administrative area details
-- Regional characteristics and demographics
-- Known vehicle density and patterns for this region
-
-## 🚗 VEHICLE IDENTIFICATION
-- Likely vehicle type and category
-- Make/model hints from search results
-- Registration period estimation
-- STNK (Surat Tanda Nomor Kendaraan) data availability
-
-## 🔍 PUBLIC RECORDS & DATA EXPOSURE
-- Any public records associated with this plate
-- Government registration database findings
-- Ownership information (if publicly available)
-- Vehicle history records
-
-## 🚨 CRIME & SAFETY INTELLIGENCE
-- Crime reports involving this plate number
-- Traffic violation history (tilang)
-- Accident reports
-- Stolen vehicle databases
-- Any wanted/flagged status
-
-## ⚠️ DATA LEAK & BREACH INTELLIGENCE
-- Any data breaches involving this plate or owner
-- Personal data exposure (KTP, NIK, identity)
-- Credential leaks associated with vehicle registration
-- Severity assessment of found leaks
-
-## 🔐 SECURITY ASSESSMENT
-- Vehicle security risk level
-- Owner privacy risk assessment
-- Data exposure severity
-- Identity theft risk from plate data
-
-## 🎯 INVESTIGATION RECOMMENDATIONS
-- Further verification steps (SAMSAT check, etc.)
-- Additional OSINT techniques
-- Cross-referencing suggestions
-- Legal considerations for Indonesian context
-
-Be thorough and specific. Include all findings from the data. Use emojis for section headers. Use Indonesian context and terminology when relevant. Note that this is for authorized security research only.`,
-          `Analyze vehicle plate: ${normalized}
-Region Code: ${regionCode}
-Region: ${region}
-Province: ${province}
-Description: ${description}
-Vehicle Type: ${vehicleType}
-
-Crime Reports: ${crimeReports.length}
-Data Leaks: ${dataLeaks.length}
-
-Intelligence data:
-${allContext}
-
-Provide a complete vehicle plate OSINT intelligence report.`
+${allContext.substring(0, 1500)}`
         )
       : 'No intelligence data available for this vehicle plate.';
 

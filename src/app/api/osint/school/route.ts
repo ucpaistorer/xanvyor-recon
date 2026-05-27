@@ -92,58 +92,30 @@ export async function POST(request: NextRequest) {
 
     const searchCalls = isSchool
       ? [
-          // General school information
-          { query: `"${trimmedQuery}" sekolah profil alamat`, num: 10 },
-          // NPSN data
-          { query: `"${trimmedQuery}" NPSN nomor pokok sekolah nasional`, num: 10 },
-          // Dapodik information
-          { query: `"${trimmedQuery}" dapodik data pokok pendidikan`, num: 10 },
-          // School accreditation (BAN-SM)
-          { query: `"${trimmedQuery}" akreditasi BAN-SM BAN-S accreditation`, num: 10 },
-          // Student data leaks
-          { query: `"${trimmedQuery}" data siswa leak bocor breach`, num: 10 },
-          // Teacher/staff data
-          { query: `"${trimmedQuery}" data guru pegawai NIP`, num: 8 },
-          // Social media presence
-          { query: `"${trimmedQuery}" site:facebook.com OR site:instagram.com OR site:youtube.com`, num: 8 },
-          // Academic achievements
-          { query: `"${trimmedQuery}" prestasi juara kompetisi olimpiade`, num: 10 },
+          { query: `"${trimmedQuery}" sekolah profil alamat NPSN akreditasi`, num: 5 },
+          { query: `"${trimmedQuery}" dapodik data pokok pendidikan guru NIP`, num: 5 },
+          { query: `"${trimmedQuery}" data siswa leak bocor breach site:facebook.com OR site:instagram.com`, num: 5 },
+          { query: `"${trimmedQuery}" prestasi juara kompetisi olimpiade`, num: 5 },
         ]
       : [
-          // General student information
-          { query: `"${trimmedQuery}" siswa murid pelajar school student`, num: 10 },
-          // Student NISN data
-          { query: `"${trimmedQuery}" NISN nomor induk siswa nasional`, num: 10 },
-          // Dapodik student records
-          { query: `"${trimmedQuery}" dapodik data pokok pendidikan siswa`, num: 10 },
-          // School enrollment info
-          { query: `"${trimmedQuery}" sekolah enrollment terdaftar`, num: 8 },
-          // Student data leaks
-          { query: `"${trimmedQuery}" data siswa leak bocor breach exposed`, num: 10 },
-          // Academic records
-          { query: `"${trimmedQuery}" nilai raport academic record prestasi`, num: 8 },
-          // Social media profiles
-          { query: `"${trimmedQuery}" site:facebook.com OR site:instagram.com OR site:tiktok.com OR site:twitter.com`, num: 8 },
-          // Academic achievements / competitions
-          { query: `"${trimmedQuery}" juara kompetisi olimpiade prestasi akademik`, num: 10 },
+          { query: `"${trimmedQuery}" siswa murid pelajar school student NISN`, num: 5 },
+          { query: `"${trimmedQuery}" dapodik data pokok pendidikan siswa sekolah enrollment`, num: 5 },
+          { query: `"${trimmedQuery}" data siswa leak bocor breach exposed nilai raport`, num: 5 },
+          { query: `"${trimmedQuery}" site:facebook.com OR site:instagram.com OR site:tiktok.com juara kompetisi olimpiade`, num: 5 },
         ];
 
-    const searchResults = await sequentialWebSearch(searchCalls, 2500);
+    const searchResults = await sequentialWebSearch(searchCalls, 800);
 
-    // Unpack sequential search results
-    const [
-      generalResults,
-      npsnResults,
-      dapodikResults,
-      accreditationResults,
-      leakResults,
-      teacherResults,
-      socialResults,
-      achievementResults,
-    ] = searchResults.map(r => r as Array<Record<string, string>>);
-
-    // ────────────────────────────────────────────────────────
-    // Phase 2: Parse and structure search results
+    // Unpack sequential search results (4 searches → 4 result sets)
+    const [result0, result1, result2, result3] = searchResults.map(r => r as Array<Record<string, string>>);
+    const generalResults = result0;
+    const npsnResults = result0;
+    const dapodikResults = result1;
+    const accreditationResults = result0;
+    const leakResults = result2;
+    const teacherResults = result1;
+    const socialResults = result2;
+    const achievementResults = result3;
     // ────────────────────────────────────────────────────────
 
     // School info extraction from general + NPSN + accreditation results
@@ -327,55 +299,11 @@ export async function POST(request: NextRequest) {
 
     const aiAnalysis = allContext.length > 20
       ? await safeAIAnalysis(
-          `You are an elite OSINT analyst specializing in Indonesian educational intelligence, school data investigation, and student records analysis. You have deep knowledge of the Indonesian education system including NPSN, Dapodik, BAN-S accreditation, and educational data structures.
+          `OSINT analyst for Indonesian educational intelligence. Report with: ## 🏫 SCHOOL/STUDENT IDENTIFICATION ## 📋 EDUCATIONAL RECORDS ## 🚨 DATA EXPOSURE ASSESSMENT ## 📱 SOCIAL MEDIA FOOTPRINT ## 🎓 ACADEMIC INTELLIGENCE ## 🛡️ RECOMMENDATIONS
+Be concise. Keep each section to 2-3 lines.`,
+          `Target: "${trimmedQuery}" | Type: ${isSchool ? 'School' : 'Student'}${isSchool ? ` | NPSN: ${schoolInfo?.npsn || 'N/A'} | Level: ${schoolInfo?.level || 'N/A'} | Status: ${schoolInfo?.status || 'N/A'}` : ` | School: ${studentInfo?.school || 'N/A'} | Level: ${studentInfo?.level || 'N/A'}`}
 
-Analyze the provided intelligence data and deliver a COMPREHENSIVE structured report with these mandatory sections:
-
-## 🏫 SCHOOL/STUDENT IDENTIFICATION
-- Entity identification and classification
-- School name, NPSN, address, province, city verification
-- Education level (SD/SMP/SMA/SMK/University)
-- School status (Negeri/Swasta)
-- Student identification details (if applicable)
-
-## 📋 EDUCATIONAL RECORDS
-- Dapodik (Data Pokok Pendidikan) data findings
-- NPSN registration and verification status
-- Student enrollment records (NISN data)
-- Teacher/staff records (NIP data)
-- Academic period and enrollment year
-
-## 🚨 DATA EXPOSURE ASSESSMENT
-- Student data leak detection and severity
-- Teacher/staff credential exposure
-- Database breach indicators
-- NISN/NIP data compromise level
-- Paste site and dark web mentions
-- Overall data exposure risk rating (Low/Medium/High/Critical)
-
-## 📱 SOCIAL MEDIA FOOTPRINT
-- School/student social media presence
-- Facebook, Instagram, YouTube, TikTok profiles
-- Official vs unofficial accounts
-- Community pages and groups
-- Social engineering risk from public profiles
-
-## 🎓 ACADEMIC INTELLIGENCE
-- Accreditation status (BAN-S/BAN-PT)
-- Academic achievements and competition results
-- Olympiad participation and awards
-- School ranking indicators
-- Curriculum and program information
-
-## 🛡️ RECOMMENDATIONS
-- Data protection improvement suggestions
-- Privacy risk mitigation steps
-- Verification of found information
-- Further investigation pathways
-- Cross-reference opportunities with other OSINT sources
-
-Be thorough, specific, and analytical. Use emojis for section headers. Flag any critical data exposures prominently.`,
-          `Investigation target: "${trimmedQuery}"\nSearch type: ${isSchool ? 'School' : 'Student'}\n\n${isSchool ? `Detected school info — NPSN: ${schoolInfo?.npsn || 'N/A'}, Level: ${schoolInfo?.level || 'N/A'}, Status: ${schoolInfo?.status || 'N/A'}, Accreditation: ${schoolInfo?.accreditation || 'N/A'}` : `Detected student info — School: ${studentInfo?.school || 'N/A'}, Level: ${studentInfo?.level || 'N/A'}, Year: ${studentInfo?.year || 'N/A'}`}\n\nIntelligence data gathered:\n${allContext}\n\nProvide a complete school/student OSINT intelligence report.`
+${allContext.substring(0, 1500)}`
         )
       : 'Insufficient data gathered for comprehensive analysis. The query may be too specific or the target may have minimal online presence. Try varying the search terms.';
 

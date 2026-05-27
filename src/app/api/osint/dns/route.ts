@@ -9,20 +9,14 @@ export async function POST(request: NextRequest) {
     }
 
     // Sequential searches for comprehensive DNS OSINT
-    const dnsSearch = await safeWebSearch(`${domain} DNS records A AAAA MX NS lookup`, 10);
-    const mxSearch = await safeWebSearch(`${domain} MX record mail server email provider`, 5);
-    const nsSearch = await safeWebSearch(`${domain} nameserver NS record hosting provider DNS`, 5);
-    const txtSearch = await safeWebSearch(`${domain} TXT record SPF DKIM DMARC DNS email security`, 8);
-    const dnssecSearch = await safeWebSearch(`${domain} DNSSEC DS record DNS security validation`, 5);
-    const cnameSearch = await safeWebSearch(`${domain} CNAME record alias www DNS`, 5);
+    const dnsSearch = await safeWebSearch(`${domain} DNS records A AAAA MX NS lookup nameserver`, 5);
+    const txtSearch = await safeWebSearch(`${domain} TXT record SPF DKIM DMARC DNS email security DNSSEC`, 5);
+    const cnameSearch = await safeWebSearch(`${domain} CNAME record alias mail server hosting provider`, 5);
 
     // Combine all results
     const allResults = [
       ...(dnsSearch as Array<Record<string, string>>),
-      ...(mxSearch as Array<Record<string, string>>),
-      ...(nsSearch as Array<Record<string, string>>),
       ...(txtSearch as Array<Record<string, string>>),
-      ...(dnssecSearch as Array<Record<string, string>>),
       ...(cnameSearch as Array<Record<string, string>>),
     ];
     const allText = allResults.map((r: Record<string, string>) => `${r.name ?? ''} ${r.snippet ?? ''}`.toLowerCase()).join(' ');
@@ -43,8 +37,8 @@ export async function POST(request: NextRequest) {
     else if (emailSecurityScore === 1) emailSecurityLevel = 'poor';
 
     // Extract name server information
-    const nsHints = (nsSearch as Array<Record<string, string>>)
-      .filter((r: Record<string, string>) => r.snippet && r.snippet.toLowerCase().includes('ns'))
+    const nsHints = (dnsSearch as Array<Record<string, string>>)
+      .filter((r: Record<string, string>) => r.snippet && (r.snippet.toLowerCase().includes('ns') || r.snippet.toLowerCase().includes('nameserver')))
       .map((r: Record<string, string>) => ({
         title: r.name,
         snippet: r.snippet?.substring(0, 150),
@@ -52,8 +46,8 @@ export async function POST(request: NextRequest) {
       }));
 
     // Extract mail server information
-    const mxHints = (mxSearch as Array<Record<string, string>>)
-      .filter((r: Record<string, string>) => r.snippet && r.snippet.toLowerCase().includes('mx'))
+    const mxHints = (dnsSearch as Array<Record<string, string>>)
+      .filter((r: Record<string, string>) => r.snippet && (r.snippet.toLowerCase().includes('mx') || r.snippet.toLowerCase().includes('mail')))
       .map((r: Record<string, string>) => ({
         title: r.name,
         snippet: r.snippet?.substring(0, 150),
@@ -73,62 +67,17 @@ export async function POST(request: NextRequest) {
     // AI analysis
     const allContext = [
       ...(dnsSearch as Array<Record<string, string>>).slice(0, 4).map((r: Record<string, string>) => `[DNS] ${r.name}: ${r.snippet}`),
-      ...(mxSearch as Array<Record<string, string>>).slice(0, 3).map((r: Record<string, string>) => `[MX] ${r.name}: ${r.snippet}`),
-      ...(nsSearch as Array<Record<string, string>>).slice(0, 3).map((r: Record<string, string>) => `[NS] ${r.name}: ${r.snippet}`),
       ...(txtSearch as Array<Record<string, string>>).slice(0, 3).map((r: Record<string, string>) => `[TXT/SPF] ${r.name}: ${r.snippet}`),
-      ...(dnssecSearch as Array<Record<string, string>>).slice(0, 2).map((r: Record<string, string>) => `[DNSSEC] ${r.name}: ${r.snippet}`),
-      ...(cnameSearch as Array<Record<string, string>>).slice(0, 2).map((r: Record<string, string>) => `[CNAME] ${r.name}: ${r.snippet}`),
+      ...(cnameSearch as Array<Record<string, string>>).slice(0, 3).map((r: Record<string, string>) => `[CNAME] ${r.name}: ${r.snippet}`),
     ].join('\n\n');
 
     const aiAnalysis = allContext.length > 0
       ? await safeAIAnalysis(
-          `You are an elite OSINT analyst specializing in DNS reconnaissance and network infrastructure intelligence.
-Analyze the DNS intelligence data and provide a COMPREHENSIVE structured intelligence report with these sections:
+          `OSINT analyst for DNS reconnaissance. Report with: ## 🌐 DNS RECORD ANALYSIS ## 📧 EMAIL SECURITY POSTURE ## 🏗️ NAMESERVER & HOSTING ## 🔐 DNSSEC ASSESSMENT ## 🔍 INFRASTRUCTURE MAPPING ## 📊 SECURITY ASSESSMENT ## 🎯 RECOMMENDATIONS
+Be concise. Keep each section to 2-3 lines.`,
+          `Domain: ${domain} | DNSSEC: ${dnssecDetected ? 'yes' : 'no'} | SPF: ${spfDetected} | DKIM: ${dkimDetected} | DMARC: ${dmarcDetected} (${emailSecurityLevel}) | Provider: ${dnsProvider}
 
-## 🌐 DNS RECORD ANALYSIS
-- A/AAAA record findings (IP addresses)
-- CNAME records and aliases
-- Overall DNS structure
-
-## 📧 EMAIL SECURITY POSTURE
-- MX record analysis (mail servers)
-- SPF (Sender Policy Framework) assessment
-- DKIM (DomainKeys Identified Mail) status
-- DMARC policy evaluation
-- Email security score and recommendations
-
-## 🏗️ NAMESERVER & HOSTING
-- Nameserver identification
-- DNS provider analysis
-- Hosting infrastructure mapping
-- CDN/Cloud detection
-
-## 🔐 DNSSEC ASSESSMENT
-- DNSSEC enabled status
-- DS record analysis
-- Key signing status
-- Security validation results
-
-## 🔍 INFRASTRUCTURE MAPPING
-- DNS-based infrastructure overview
-- Subdomain delegation patterns
-- Service identification from DNS
-- Third-party service integrations
-
-## 📊 SECURITY ASSESSMENT
-- DNS security score
-- Vulnerability indicators
-- Email spoofing risk (SPF/DKIM/DMARC gaps)
-- Zone transfer risk indicators
-
-## 🎯 RECOMMENDATIONS
-- DNS security improvements
-- Email security hardening
-- DNSSEC implementation advice
-- Monitoring suggestions
-
-Be thorough and specific. Use emojis for section headers.`,
-          `Analyze DNS reconnaissance data for: ${domain}\nDNSSEC: ${dnssecDetected ? 'detected' : 'not detected'}\nEmail Security: SPF=${spfDetected}, DKIM=${dkimDetected}, DMARC=${dmarcDetected} (${emailSecurityLevel})\nDNS Provider: ${dnsProvider}\n\nIntelligence data:\n${allContext}\n\nProvide a comprehensive DNS intelligence report.`
+${allContext.substring(0, 1500)}`
         )
       : 'No DNS intelligence data available for this domain.';
 
@@ -154,12 +103,12 @@ Be thorough and specific. Use emojis for section headers.`,
         title: r.name,
         snippet: r.snippet,
       })),
-      mxResults: (mxSearch as Array<Record<string, string>>).map((r: Record<string, string>) => ({
+      mxResults: (dnsSearch as Array<Record<string, string>>).map((r: Record<string, string>) => ({
         url: r.url,
         title: r.name,
         snippet: r.snippet,
       })),
-      nsResults: (nsSearch as Array<Record<string, string>>).map((r: Record<string, string>) => ({
+      nsResults: (dnsSearch as Array<Record<string, string>>).map((r: Record<string, string>) => ({
         url: r.url,
         title: r.name,
         snippet: r.snippet,
@@ -169,7 +118,7 @@ Be thorough and specific. Use emojis for section headers.`,
         title: r.name,
         snippet: r.snippet,
       })),
-      dnssecResults: (dnssecSearch as Array<Record<string, string>>).map((r: Record<string, string>) => ({
+      dnssecResults: (txtSearch as Array<Record<string, string>>).map((r: Record<string, string>) => ({
         url: r.url,
         title: r.name,
         snippet: r.snippet,

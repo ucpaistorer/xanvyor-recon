@@ -21,7 +21,7 @@ export async function safeWebSearch(query: string, num: number = 10, retries: nu
       const errMsg = error instanceof Error ? error.message : String(error);
       if (errMsg.includes('429') || errMsg.toLowerCase().includes('too many requests') || errMsg.toLowerCase().includes('rate limit')) {
         const waitTime = attempt * 3000; // 3s, 6s, 9s
-        console.log(`Rate limited on "${query}". Waiting ${waitTime}ms (attempt ${attempt}/${retries})`);
+        console.log(`[zai] Rate limited on "${query}". Waiting ${waitTime}ms (attempt ${attempt}/${retries})`);
         await new Promise(resolve => setTimeout(resolve, waitTime));
         continue;
       }
@@ -30,6 +30,7 @@ export async function safeWebSearch(query: string, num: number = 10, retries: nu
         await new Promise(resolve => setTimeout(resolve, 2000));
         continue;
       }
+      console.error(`[zai] Web search failed after ${retries} attempts:`, errMsg);
       return []; // Return empty on final failure
     }
   }
@@ -69,6 +70,8 @@ export async function safeAIAnalysis(systemPrompt: string, userPrompt: string, r
       });
       return completion.choices[0]?.message?.content || '';
     } catch (error: unknown) {
+      const errMsg = error instanceof Error ? error.message : String(error);
+      console.error(`[zai] AI analysis attempt ${attempt}/${retries} failed:`, errMsg.substring(0, 200));
       if (attempt < retries) {
         await new Promise(resolve => setTimeout(resolve, 3000));
         continue;
@@ -77,4 +80,50 @@ export async function safeAIAnalysis(systemPrompt: string, userPrompt: string, r
     }
   }
   return '';
+}
+
+// Safe VLM (Vision Language Model) call with retry
+export async function safeVisionAnalysis(
+  imageUrl: string,
+  prompt: string,
+  retries: number = 2
+): Promise<{ success: boolean; content: string; error?: string }> {
+  const zai = await getZAI();
+  
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      const response = await zai.chat.completions.createVision({
+        messages: [
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: prompt },
+              { type: 'image_url', image_url: { url: imageUrl } },
+            ],
+          },
+        ],
+        thinking: { type: 'disabled' },
+      });
+      const content = response.choices[0]?.message?.content || '';
+      return { success: true, content };
+    } catch (error: unknown) {
+      const errMsg = error instanceof Error ? error.message : String(error);
+      console.error(`[zai] VLM attempt ${attempt}/${retries} failed:`, errMsg.substring(0, 200));
+      
+      if (errMsg.includes('429') || errMsg.toLowerCase().includes('too many requests') || errMsg.toLowerCase().includes('rate limit')) {
+        if (attempt < retries) {
+          await new Promise(resolve => setTimeout(resolve, 5000));
+          continue;
+        }
+        return { success: false, content: '', error: 'VLM analysis is currently rate limited. Please try again in a moment.' };
+      }
+      
+      if (attempt < retries) {
+        await new Promise(resolve => setTimeout(resolve, 3000));
+        continue;
+      }
+      return { success: false, content: '', error: `VLM analysis failed: ${errMsg}` };
+    }
+  }
+  return { success: false, content: '', error: 'VLM analysis failed after retries.' };
 }

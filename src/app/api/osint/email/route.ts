@@ -50,16 +50,14 @@ export async function POST(request: NextRequest) {
     const providerInfo = analyzeProvider(domain);
 
     // Sequential searches for comprehensive email OSINT
-    const emailSearch = await safeWebSearch(`"${email}" OR "${username}@${domain}"`, 10);
-    const breachSearch = await safeWebSearch(`"${email}" data breach leak paste compromised hacked`, 10);
-    const socialSearch = await safeWebSearch(`"${email}" account profile registered social media`, 8);
-    const ktpSearch = await safeWebSearch(`"${email}" KTP identitas personal data leak Indonesia`, 8);
+    const emailSearch = await safeWebSearch(`"${email}" OR "${username}@${domain}"`, 5);
+    const breachSearch = await safeWebSearch(`"${email}" data breach leak paste compromised hacked KTP identitas social media`, 5);
     const domainSearch = await safeWebSearch(`${domain} domain whois information MX records`, 5);
 
     // Detect linked accounts from search results
     const allResults = [
       ...(emailSearch as Array<Record<string, string>>),
-      ...(socialSearch as Array<Record<string, string>>),
+      ...(breachSearch as Array<Record<string, string>>),
     ];
     const allText = allResults.map((r: Record<string, string>) => `${r.name ?? ''} ${r.snippet ?? ''} ${r.url ?? ''}`.toLowerCase()).join(' ');
 
@@ -97,7 +95,7 @@ export async function POST(request: NextRequest) {
 
     // KTP/ID leak detection
     const ktpKeywords = ['ktp', 'nik', 'identitas', 'id card', 'identity card', 'passport', 'kk', 'kartu keluarga'];
-    const ktpLeaks = (ktpSearch as Array<Record<string, string>>)
+    const ktpLeaks = (breachSearch as Array<Record<string, string>>)
       .filter((r: Record<string, string>) =>
         ktpKeywords.some(k => `${r.name ?? ''} ${r.snippet ?? ''}`.toLowerCase().includes(k))
       )
@@ -131,60 +129,15 @@ export async function POST(request: NextRequest) {
       `[BREACH] ${r.name}: ${r.snippet}`
     ).join('\n');
 
-    const socialContext = (socialSearch as Array<Record<string, string>>).slice(0, 4).map((r: Record<string, string>) =>
-      `[SOCIAL] ${r.name}: ${r.snippet}`
-    ).join('\n');
-
-    const ktpContext = (ktpSearch as Array<Record<string, string>>).slice(0, 3).map((r: Record<string, string>) =>
-      `[ID-LEAK] ${r.name}: ${r.snippet}`
-    ).join('\n');
-
-    const allContext = [emailContext, breachContext, socialContext, ktpContext].filter(Boolean).join('\n\n');
+    const allContext = [emailContext, breachContext].filter(Boolean).join('\n\n');
 
     const aiAnalysis = allContext.length > 0
       ? await safeAIAnalysis(
-          `You are an elite OSINT analyst specializing in email intelligence and digital identity investigation.
-Analyze the email address data and provide a COMPREHENSIVE structured intelligence report with these sections:
+          `OSINT analyst for email intelligence. Report with: ## 📧 EMAIL INTELLIGENCE ## 🔗 LINKED ACCOUNTS ## 🚨 BREACH & EXPOSURE ## 🪪 IDENTITY DOCUMENT LEAKS ## 🎯 DIGITAL FOOTPRINT ## 📊 RISK ASSESSMENT ## 🔍 INVESTIGATION RECOMMENDATIONS
+Be concise. Keep each section to 2-3 lines.`,
+          `Email: ${email} | Provider: ${providerInfo.type} (${providerInfo.country}) | Risk: ${providerInfo.risk}
 
-## 📧 EMAIL INTELLIGENCE
-- Email address analysis (provider, format, pattern)
-- Provider risk assessment
-- Email type classification (personal/corporate/disposable)
-
-## 🔗 LINKED ACCOUNTS & SERVICES
-- Platforms and services linked to this email
-- Social media accounts found
-- Professional profiles
-- E-commerce and financial services
-
-## 🚨 BREACH & EXPOSURE ASSESSMENT
-- Data breaches involving this email
-- Credential exposure level
-- Known breach databases listing this email
-- Password compromise indicators
-
-## 🪪 IDENTITY DOCUMENT LEAKS
-- KTP/ID card exposure (especially for Indonesian targets)
-- Personal identity data leaks
-- Document type and severity
-
-## 🎯 DIGITAL FOOTPRINT
-- Online presence linked to this email
-- Public profiles and registrations
-- Domain/organization association
-
-## 📊 RISK ASSESSMENT
-- Overall risk score (Low/Medium/High/Critical)
-- Exposure severity
-- Recommended actions
-
-## 🔍 INVESTIGATION RECOMMENDATIONS
-- Further verification steps
-- Cross-reference suggestions
-- Mitigation advice
-
-Be thorough and specific. Use emojis for section headers.`,
-          `Analyze email: ${email}\nProvider: ${providerInfo.type} (${providerInfo.country}), Risk: ${providerInfo.risk}\n\nIntelligence data:\n${allContext}\n\nProvide a complete email intelligence report.`
+${allContext.substring(0, 1500)}`
         )
       : 'No data available for analysis. Try a different email address.';
 
@@ -208,7 +161,7 @@ Be thorough and specific. Use emojis for section headers.`,
         title: r.name,
         snippet: r.snippet,
       })),
-      socialAccounts: (socialSearch as Array<Record<string, string>>).map((r: Record<string, string>) => ({
+      socialAccounts: (breachSearch as Array<Record<string, string>>).map((r: Record<string, string>) => ({
         url: r.url,
         title: r.name,
         snippet: r.snippet,

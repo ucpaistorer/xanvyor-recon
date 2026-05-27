@@ -77,50 +77,30 @@ export async function POST(request: NextRequest) {
     const [
       generalResults,
       socialMediaResults,
-      professionalResults,
-      devTechResults,
-      messagingResults,
       leakResults,
-      profilePicResults,
       linkedAccountResults,
     ] = await sequentialWebSearch([
-      // General username search
-      { query: `"${trimmedUsername}" username profile account identity`, num: 10 },
-      // Major social media platforms
-      { query: `"${trimmedUsername}" site:facebook.com OR site:instagram.com OR site:tiktok.com OR site:x.com OR site:twitter.com OR site:threads.net`, num: 10 },
-      // Professional platforms
-      { query: `"${trimmedUsername}" site:linkedin.com OR site:quora.com OR site:medium.com`, num: 8 },
-      // Development & tech platforms
-      { query: `"${trimmedUsername}" site:github.com OR site:gitlab.com OR site:bitbucket.org OR site:stackoverflow.com OR site:dev.to`, num: 8 },
-      // Messaging & regional platforms
-      { query: `"${trimmedUsername}" site:t.me OR site:discord.com OR site:vk.com OR site:ok.ru OR site:mastodon.social OR site:bsky.app`, num: 8 },
-      // Data breaches and leaks
-      { query: `"${trimmedUsername}" data breach leak paste compromised credential exposed`, num: 10 },
-      // Profile pictures and visual identity
-      { query: `"${trimmedUsername}" profile picture avatar photo image`, num: 8 },
-      // Linked / connected accounts
-      { query: `"${trimmedUsername}" linked accounts connected alias same person also known as`, num: 8 },
-    ], 2000);
+      { query: `"${trimmedUsername}" username profile account identity social media facebook instagram tiktok`, num: 5 },
+      { query: `"${trimmedUsername}" site:linkedin.com OR site:github.com OR site:twitter.com OR site:x.com OR site:t.me OR site:discord.com`, num: 5 },
+      { query: `"${trimmedUsername}" data breach leak paste compromised credential exposed dark web`, num: 5 },
+      { query: `"${trimmedUsername}" linked accounts connected alias same person profile picture avatar`, num: 5 },
+    ], 800);
 
     // Parse all results
     const generalData = parseResults(generalResults);
     const socialData = parseResults(socialMediaResults);
-    const professionalData = parseResults(professionalResults);
-    const devTechData = parseResults(devTechResults);
-    const messagingData = parseResults(messagingResults);
     const leakData = parseResults(leakResults);
-    const profilePicData = parseResults(profilePicResults);
     const linkedData = parseResults(linkedAccountResults);
+    const professionalData = socialData;
+    const devTechData = socialData;
+    const messagingData = socialData;
+    const profilePicData = generalData;
 
     // Combine all search text for platform detection
     const allResults = [
       ...generalData,
       ...socialData,
-      ...professionalData,
-      ...devTechData,
-      ...messagingData,
       ...leakData,
-      ...profilePicData,
       ...linkedData,
     ];
     const allSearchText = allResults
@@ -338,23 +318,16 @@ export async function POST(request: NextRequest) {
     const searchResults = [
       ...generalData.slice(0, 4).map((r) => ({ ...r, category: 'General' })),
       ...socialData.slice(0, 3).map((r) => ({ ...r, category: 'Social Media' })),
-      ...professionalData.slice(0, 2).map((r) => ({ ...r, category: 'Professional' })),
-      ...devTechData.slice(0, 2).map((r) => ({ ...r, category: 'Development' })),
-      ...messagingData.slice(0, 2).map((r) => ({ ...r, category: 'Messaging' })),
-      ...profilePicData.slice(0, 2).map((r) => ({ ...r, category: 'Profile Pictures' })),
+      ...leakData.slice(0, 2).map((r) => ({ ...r, category: 'Data Breaches' })),
       ...linkedData.slice(0, 2).map((r) => ({ ...r, category: 'Linked Accounts' })),
     ];
 
     // Comprehensive AI analysis
     const allContext = [
       ...generalData.slice(0, 3).map((r) => `[GENERAL] ${r.title}: ${r.snippet}`),
-      ...socialData.slice(0, 3).map((r) => `[SOCIAL] ${r.title}: ${r.snippet}`),
-      ...professionalData.slice(0, 2).map((r) => `[PROFESSIONAL] ${r.title}: ${r.snippet}`),
-      ...devTechData.slice(0, 2).map((r) => `[DEV-TECH] ${r.title}: ${r.snippet}`),
-      ...messagingData.slice(0, 2).map((r) => `[MESSAGING] ${r.title}: ${r.snippet}`),
+      ...socialData.slice(0, 4).map((r) => `[SOCIAL] ${r.title}: ${r.snippet}`),
       ...leakData.slice(0, 3).map((r) => `[LEAK] ${r.title}: ${r.snippet}`),
-      ...profilePicData.slice(0, 2).map((r) => `[PROFILE-PIC] ${r.title}: ${r.snippet}`),
-      ...linkedData.slice(0, 2).map((r) => `[LINKED] ${r.title}: ${r.snippet}`),
+      ...linkedData.slice(0, 3).map((r) => `[LINKED] ${r.title}: ${r.snippet}`),
     ].join('\n\n');
 
     const platformSummary = profiles
@@ -364,74 +337,11 @@ export async function POST(request: NextRequest) {
 
     const aiAnalysis = allContext.length > 0
       ? await safeAIAnalysis(
-          `You are an elite OSINT analyst specializing in social media intelligence (SOCMINT), digital identity investigation, and online footprint analysis.
-Analyze the social media deep scan data and provide a COMPREHENSIVE structured intelligence report with these sections:
+          `OSINT analyst for social media intelligence (SOCMINT). Report with: ## 👤 USERNAME ANALYSIS ## 📊 PLATFORM PRESENCE ## 🖼️ VISUAL IDENTITY ## 👥 SOCIAL GRAPH ## 🔗 LINKED ACCOUNTS ## 🚨 DATA BREACH & EXPOSURE ## 📈 DIGITAL FOOTPRINT ## 🛡️ RECOMMENDATIONS
+Be concise. Keep each section to 2-3 lines.`,
+          `Username: "${trimmedUsername}" | Platforms: ${platformSummary || 'None'} | Detected: ${detectedCount} | Footprint: ${footprintScore}/100 | Risk: ${riskLevel} | Exposure: ${exposureLevel} | Leaks: ${dataLeaks.length}
 
-## 👤 USERNAME ANALYSIS
-- Username pattern analysis (meaning, structure, likely origin)
-- Username variations and common aliases
-- Estimated account creation period across platforms
-- Digital persona consistency assessment
-
-## 📊 PLATFORM PRESENCE MAP
-- Social media platforms where username was detected
-- Activity level assessment per platform category
-- Account age indicators and registration patterns
-- Cross-platform identity consistency
-
-## 🖼️ VISUAL IDENTITY
-- Profile picture analysis and consistency
-- Avatar usage patterns across platforms
-- Image reverse search indicators
-- Visual brand/persona analysis
-
-## 👥 SOCIAL GRAPH INTELLIGENCE
-- Follower/following ratio analysis
-- Community and network assessment
-- Influence and reach estimation
-- Interaction patterns and engagement level
-
-## 🔗 LINKED ACCOUNTS & CROSS-REFERENCES
-- Connected accounts and identities
-- Cross-platform linkages
-- Email/phone associations
-- Shared profile elements
-
-## 🚨 DATA BREACH & EXPOSURE
-- Known data breaches involving this username
-- Credential exposure and password leaks
-- Personal information exposure assessment
-- Dark web presence indicators
-
-## 📈 DIGITAL FOOTPRINT ASSESSMENT
-- Overall digital footprint score: ${footprintScore}/100
-- Risk level: ${riskLevel.toUpperCase()}
-- Exposure level: ${exposureLevel.toUpperCase()}
-- Privacy vulnerability assessment
-- De-anonymization risk
-
-## 🛡️ PRIVACY & SECURITY RECOMMENDATIONS
-- Account hardening priorities
-- Privacy setting improvements
-- Credential rotation needs
-- Account consolidation/cleanup suggestions
-- Risk mitigation strategies
-
-Be thorough and specific. Include all findings from the data. Use emojis for section headers. Note that this is for authorized security research only.`,
-          `Analyze social media deep scan for username: "${trimmedUsername}"
-
-Detected on platforms: ${platformSummary || 'None detected'}
-Platforms checked: ${PLATFORMS.length}
-Detected count: ${detectedCount}
-Digital footprint score: ${footprintScore}/100
-Risk level: ${riskLevel}
-Exposure level: ${exposureLevel}
-Data leaks found: ${dataLeaks.length}
-
-Intelligence data:
-${allContext}
-
-Provide a comprehensive social media OSINT intelligence report.`
+${allContext.substring(0, 1500)}`
         )
       : 'No intelligence data available for this username.';
 

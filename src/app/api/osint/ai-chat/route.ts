@@ -20,7 +20,8 @@ export async function POST(request: NextRequest) {
         searchContext = (searchResults as Array<Record<string, string>>)
           .map((r: Record<string, string>) => `• ${r.name}: ${r.snippet} (${r.url})`)
           .join('\n');
-      } catch {
+      } catch (e) {
+        console.error('[ai-chat] Web search failed:', e instanceof Error ? e.message : String(e));
         searchContext = '';
       }
     }

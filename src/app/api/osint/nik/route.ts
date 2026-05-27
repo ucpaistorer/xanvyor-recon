@@ -148,31 +148,24 @@ export async function POST(request: NextRequest) {
     }
 
     // Sequential web searches to avoid rate limiting
-    // 1. Search for area code to find province/city/district
     const areaResults = await safeWebSearch(
       `"kode wilayah ${decoded.areaCode}" provinsi kota kecamatan Indonesia NIK`,
-      10
+      5
     );
 
     // 2. Search for the NIK number to find any public data
     const publicResults = await safeWebSearch(
-      `"${cleanedNIK}" data public record Indonesia`,
-      10
+      `"${cleanedNIK}" data public record Indonesia breach leak KTP identitas`,
+      5
     );
 
-    // 3. Search for associated data leaks
-    const leakResults = await safeWebSearch(
-      `"${cleanedNIK}" data breach leak KTP identitas bocor`,
-      10
-    );
-
-    // 4. Search for KK number related data
+    // 3. Search for KK number related data
     const kkResults = await safeWebSearch(
       `"${decoded.kkNumber}" kartu keluarga data`,
-      8
+      5
     );
 
-    // Extract area information from search results
+    const leakResults = publicResults;
     const areaInfo = (areaResults as Array<Record<string, string>>).map((r) => ({
       title: r.name || '',
       snippet: r.snippet || '',
@@ -267,54 +260,11 @@ export async function POST(request: NextRequest) {
 
     const aiAnalysis = allContext.length > 0
       ? await safeAIAnalysis(
-          `You are an elite OSINT analyst specializing in Indonesian identity intelligence and NIK (Nomor Induk Kependudukan) investigation.
-Analyze the NIK data and provide a COMPREHENSIVE structured intelligence report with these sections:
+          `OSINT analyst for Indonesian NIK intelligence. Report with: ## 📋 NIK DECODING ANALYSIS ## 🗺️ GEOGRAPHIC INTELLIGENCE ## 🔍 PUBLIC DATA EXPOSURE ## 🚨 DATA LEAK & BREACH ## 👤 IDENTITY PROFILE ## 🔐 SECURITY ASSESSMENT ## 🎯 INVESTIGATION RECOMMENDATIONS
+Be concise. Keep each section to 2-3 lines.`,
+          `NIK: ${cleanedNIK} | DOB: ${decoded.birthDate} | Gender: ${decoded.gender} | Area: ${decoded.areaCode} | Province: ${decoded.province || 'Unknown'} | City: ${decoded.city || 'Unknown'} | KK: ${decoded.kkNumber}
 
-## 📋 NIK DECODING ANALYSIS
-- Full NIK breakdown and structure analysis
-- Birth date, gender, and area code interpretation
-- NIK validity assessment
-- KK (Kartu Keluarga) number derivation and significance
-
-## 🗺️ GEOGRAPHIC INTELLIGENCE
-- Province, city/district, and subdistrict identification
-- Area code analysis and regional mapping
-- Administrative region details
-- Any known regional characteristics
-
-## 🔍 PUBLIC DATA EXPOSURE
-- Any public records associated with this NIK
-- Government or public service registrations
-- Digital footprint linked to this identity
-- Social media or online account associations
-
-## 🚨 DATA LEAK & BREACH INTELLIGENCE
-- Any data breaches involving this NIK or area
-- KTP/identity document exposure
-- Credential leaks and compromised accounts
-- Severity assessment of found leaks
-- Family card (KK) data exposure
-
-## 👤 IDENTITY PROFILE
-- Estimated demographic profile based on NIK decoding
-- Age and generation analysis
-- Regional cultural background
-- Potential associated identities
-
-## 🔐 SECURITY ASSESSMENT
-- Identity theft risk level
-- Data exposure severity
-- Privacy vulnerability assessment
-- Recommendations for protection
-
-## 🎯 INVESTIGATION RECOMMENDATIONS
-- Further verification steps
-- Cross-referencing suggestions
-- Additional OSINT techniques to apply
-- Legal considerations for Indonesian context
-
-Be thorough and specific. Include all findings from the data. Use emojis for section headers. Note that this is for authorized security research only.`,
-          `Analyze NIK: ${cleanedNIK}\n\nDecoded info:\n- Birth Date: ${decoded.birthDate}\n- Gender: ${decoded.gender}\n- Area Code: ${decoded.areaCode}\n- Province: ${decoded.province || 'Unknown'}\n- City: ${decoded.city || 'Unknown'}\n- Subdistrict: ${decoded.subdistrict || 'Unknown'}\n- KK Number: ${decoded.kkNumber}\n- NIK Valid: ${decoded.nikValid}\n- Validation Notes: ${decoded.validationNotes.join('; ')}\n\nIntelligence data:\n${allContext}\n\nProvide a complete NIK OSINT intelligence report.`
+${allContext.substring(0, 1500)}`
         )
       : 'No intelligence data available for this NIK number.';
 

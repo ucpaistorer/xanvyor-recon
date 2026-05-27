@@ -5,8 +5,8 @@ import { safeWebSearch, safeAIAnalysis, sequentialWebSearch } from '@/lib/zai';
 // P2PKH: starts with 1, 25-34 chars, base58
 // P2SH: starts with 3, 25-34 chars, base58
 // Bech32: starts with bc1, 42-62 chars, lowercase alphanumeric
-const BTC_P2PKH_REGEX = /^1[A-HJ-NP-Za-km-z]{25,34}$/;
-const BTC_P2SH_REGEX = /^3[A-HJ-NP-Za-km-z]{25,34}$/;
+const BTC_P2PKH_REGEX = /^1[1-9A-HJ-NP-Za-km-z]{25,34}$/;
+const BTC_P2SH_REGEX = /^3[1-9A-HJ-NP-Za-km-z]{25,34}$/;
 const BTC_BECH32_REGEX = /^bc1[a-z0-9]{39,59}$/;
 
 function validateBitcoinAddress(address: string): { valid: boolean; addressType: string } {
@@ -55,24 +55,14 @@ export async function POST(request: NextRequest) {
     const [
       blockchainResults,
       transactionResults,
-      walletResults,
-      exchangeResults,
       riskResults,
       darknetResults,
     ] = await sequentialWebSearch([
-      // Search for address on blockchain explorers
-      { query: `"${trimmedAddress}" bitcoin blockchain explorer balance transactions`, num: 10 },
-      // Search for associated transactions
-      { query: `"${trimmedAddress}" bitcoin transaction history sent received volume`, num: 10 },
-      // Search for associated wallets and clusters
-      { query: `"${trimmedAddress}" bitcoin wallet cluster associated addresses`, num: 8 },
-      // Search for exchange connections
-      { query: `"${trimmedAddress}" bitcoin exchange deposit withdrawal Binance Coinbase Kraken`, num: 8 },
-      // Search for risk/sanctions/OFAC
-      { query: `"${trimmedAddress}" bitcoin risk sanction OFAC AML fraud scam illicit`, num: 10 },
-      // Search for darknet/criminal activity
-      { query: `"${trimmedAddress}" bitcoin darknet marketplace ransomware mixer tumbler crime`, num: 10 },
-    ], 2000);
+      { query: `"${trimmedAddress}" bitcoin blockchain explorer balance transactions wallet cluster`, num: 5 },
+      { query: `"${trimmedAddress}" bitcoin transaction history sent received exchange Binance Coinbase`, num: 5 },
+      { query: `"${trimmedAddress}" bitcoin risk sanction OFAC AML fraud scam illicit`, num: 5 },
+      { query: `"${trimmedAddress}" bitcoin darknet marketplace ransomware mixer tumbler crime`, num: 5 },
+    ], 800);
 
     // Parse search results into uniform format
     const parseResults = (results: unknown[]) => {
@@ -86,10 +76,10 @@ export async function POST(request: NextRequest) {
 
     const blockchainData = parseResults(blockchainResults);
     const transactionData = parseResults(transactionResults);
-    const walletData = parseResults(walletResults);
-    const exchangeData = parseResults(exchangeResults);
     const riskData = parseResults(riskResults);
     const darknetData = parseResults(darknetResults);
+    const walletData = blockchainData;
+    const exchangeData = transactionData;
 
     // ====== RISK ASSESSMENT ======
     const riskText = [...riskData, ...darknetData]
@@ -188,73 +178,11 @@ export async function POST(request: NextRequest) {
 
     const aiAnalysis = allContext.length > 0
       ? await safeAIAnalysis(
-          `You are an elite OSINT analyst specializing in cryptocurrency intelligence and blockchain forensics (like Chainalysis or Elliptic).
-Analyze the Bitcoin address data and provide a COMPREHENSIVE structured intelligence report with these sections:
+          `OSINT analyst for cryptocurrency & blockchain forensics. Report with: ## 📋 ADDRESS ANALYSIS ## 💰 TRANSACTION INTELLIGENCE ## 🔗 WALLET & CLUSTER ## 🏦 EXCHANGE & SERVICE ## ⚠️ RISK ASSESSMENT ## 🔍 BLOCKCHAIN FORENSICS ## 🔐 SECURITY & COMPLIANCE ## 🎯 RECOMMENDATIONS
+Be concise. Keep each section to 2-3 lines.`,
+          `BTC: ${trimmedAddress} | Type: ${addressType} | Risk: ${riskLevel} | Indicators: ${riskIndicators.map(r => `${r.category} (${r.severity})`).join(', ') || 'None'} | Exchanges: ${detectedExchanges.join(', ') || 'None'}
 
-## 📋 ADDRESS ANALYSIS
-- Bitcoin address type and format breakdown
-- Address derivation method (Legacy/SegWit/Native SegWit)
-- Address characteristics and usage patterns
-- First seen and activity timeline
-
-## 💰 TRANSACTION INTELLIGENCE
-- Transaction volume and frequency analysis
-- Total received and sent amounts (if available)
-- Transaction patterns (regular, sporadic, one-time)
-- Fee analysis and timing patterns
-- UTXO management behavior
-
-## 🔗 WALLET & CLUSTER INTELLIGENCE
-- Associated wallet addresses and clusters
-- Co-spending patterns and change address analysis
-- Wallet type identification (exchange, personal, service)
-- Address reuse behavior
-
-## 🏦 EXCHANGE & SERVICE CONNECTIONS
-- Known exchange associations
-- Deposit/withdrawal patterns to exchanges
-- Service provider connections
-- Payment processor usage
-
-## ⚠️ RISK ASSESSMENT
-- Overall risk level (LOW/MEDIUM/HIGH/CRITICAL)
-- Sanctions screening results (OFAC, EU, UN)
-- AML/KYC concerns
-- Association with illicit activities
-- Darknet marketplace connections
-- Mixer/tumbler usage indicators
-- Ransomware connections
-- Fraud and scam associations
-
-## 🔍 BLOCKCHAIN FORENSICS
-- Transaction graph analysis hints
-- Flow of funds tracing
-- Source of funds assessment
-- Destination analysis
-
-## 🔐 SECURITY & COMPLIANCE
-- Address reputation score
-- Compliance considerations
-- Regulatory risk factors
-- Recommended due diligence steps
-
-## 🎯 INVESTIGATION RECOMMENDATIONS
-- Further blockchain analysis steps
-- Additional OSINT techniques
-- Cross-chain analysis suggestions
-- Legal and compliance recommendations
-
-Be thorough and specific. Include all findings from the data. Use emojis for section headers. Note that this is for authorized security research and compliance purposes only.`,
-          `Analyze Bitcoin address: ${trimmedAddress}
-Address Type: ${addressType}
-Risk Level: ${riskLevel}
-Risk Indicators: ${riskIndicators.map(r => `${r.category} (${r.severity})`).join(', ') || 'None detected'}
-Detected Exchanges: ${detectedExchanges.join(', ') || 'None detected'}
-
-Intelligence data:
-${allContext}
-
-Provide a complete Bitcoin address OSINT intelligence report.`
+${allContext.substring(0, 1500)}`
         )
       : 'No intelligence data available for this Bitcoin address.';
 

@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import ZAI from 'z-ai-web-dev-sdk';
-import { safeWebSearch, safeAIAnalysis } from '@/lib/zai';
+import { safeWebSearch, safeAIAnalysis, safeVisionAnalysis } from '@/lib/zai';
 
 // ============================================================
 // Types
@@ -46,8 +45,6 @@ export async function POST(request: NextRequest) {
     // ----------------------------------------------------------
     // Step 1: Use VLM to extract KTP data
     // ----------------------------------------------------------
-    const zai = await ZAI.create();
-
     const vlmPrompt = `You are an expert OCR and document analysis AI specializing in Indonesian KTP (Kartu Tanda Penduduk / Indonesian National Identity Card) extraction.
 
 Analyze this image carefully. If it is NOT a KTP (Indonesian ID card), respond with exactly: NOT_A_KTP
@@ -81,34 +78,14 @@ IMPORTANT RULES:
 - If the image is not a KTP at all, return exactly: NOT_A_KTP
 - Return ONLY the JSON, no other text or explanation`;
 
-    let rawVlmResponse: string;
-    try {
-      const response = await zai.chat.completions.createVision({
-        messages: [
-          {
-            role: 'user',
-            content: [
-              { type: 'text', text: vlmPrompt },
-              { type: 'image_url', image_url: { url: effectiveImageUrl } },
-            ],
-          },
-        ],
-        thinking: { type: 'disabled' },
-      });
-      rawVlmResponse = response.choices[0]?.message?.content || '';
-    } catch (error: unknown) {
-      const errMsg = error instanceof Error ? error.message : String(error);
-      if (errMsg.includes('429') || errMsg.toLowerCase().includes('too many requests') || errMsg.toLowerCase().includes('rate limit')) {
-        return NextResponse.json(
-          { error: 'VLM analysis is currently rate limited. Please try again in a moment.' },
-          { status: 429 }
-        );
-      }
+    const vlmResult = await safeVisionAnalysis(effectiveImageUrl, vlmPrompt);
+    if (!vlmResult.success) {
       return NextResponse.json(
-        { error: `VLM analysis failed: ${errMsg}. The image URL may be inaccessible or the format may not be supported.` },
+        { error: vlmResult.error || 'VLM analysis failed. The image URL may be inaccessible.' },
         { status: 500 }
       );
     }
+    const rawVlmResponse = vlmResult.content;
 
     // Check if image is not a KTP
     if (rawVlmResponse.trim().toUpperCase().includes('NOT_A_KTP')) {
@@ -169,40 +146,19 @@ IMPORTANT RULES:
       openStreetMapUrl: `https://www.openstreetmap.org/search?query=${encodeURIComponent(fullAddress)}`,
     };
 
-    // Use web search to geocode the address
+    // Try to geocode the address using Nominatim
     try {
-      const geoSearchResults = await safeWebSearch(
-        `${fullAddress} latitude longitude coordinates location`,
-        5
-      );
-
-      if (geoSearchResults.length > 0) {
-        // Use LLM to extract coordinates from search results
-        const geoContext = (geoSearchResults as Array<Record<string, string>>)
-          .map((r: Record<string, string>) => `${r.name ?? ''}: ${r.snippet ?? ''}`)
-          .join('\n');
-
-        const coordAnalysis = await safeAIAnalysis(
-          `You are a geocoding assistant. Extract latitude and longitude coordinates from the provided search results. If exact coordinates are not found, estimate approximate coordinates based on the Indonesian address provided. Return ONLY a JSON object: { "latitude": number, "longitude": number }. Do not include any other text.`,
-          `Address: ${fullAddress}\n\nSearch results:\n${geoContext}`
-        );
-
-        try {
-          const coordMatch = coordAnalysis.match(/\{[\s\S]*\}/);
-          if (coordMatch) {
-            const coords = JSON.parse(coordMatch[0]) as { latitude: number; longitude: number };
-            if (typeof coords.latitude === 'number' && typeof coords.longitude === 'number' &&
-                coords.latitude >= -11 && coords.latitude <= 6 &&
-                coords.longitude >= 95 && coords.longitude <= 141) {
-              location.latitude = coords.latitude;
-              location.longitude = coords.longitude;
-              location.mapUrl = `https://www.google.com/maps/@${coords.latitude},${coords.longitude},15z`;
-              location.embedUrl = `https://www.google.com/maps/embed/v1/place?key=&q=${coords.latitude},${coords.longitude}`;
-              location.openStreetMapUrl = `https://www.openstreetmap.org/?mlat=${coords.latitude}&mlon=${coords.longitude}#map=15/${coords.latitude}/${coords.longitude}`;
-            }
-          }
-        } catch {
-          // Coordinate parsing failed, keep default location URLs
+      const geoUrl = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(fullAddress)}&format=json&limit=1&accept-language=id`;
+      const geoRes = await fetch(geoUrl, {
+        headers: { 'User-Agent': 'XANVYOR-RECON-OSINT/1.0' },
+        signal: AbortSignal.timeout(8000),
+      });
+      if (geoRes.ok) {
+        const geoData = await geoRes.json();
+        if (geoData.length > 0) {
+          location.latitude = parseFloat(geoData[0].lat);
+          location.longitude = parseFloat(geoData[0].lon);
+          location.openStreetMapUrl = `https://www.openstreetmap.org/?mlat=${location.latitude}&mlon=${location.longitude}#map=15/${location.latitude}/${location.longitude}`;
         }
       }
     } catch {
@@ -254,16 +210,16 @@ IMPORTANT RULES:
         }
       }
 
-      // Search for name + address for public records
-      if (ktpData.nama && ktpData.alamat) {
+      // Search for name + address (combines public records + social media)
+      if (ktpData.nama) {
         const nameAddrResults = await safeWebSearch(
-          `"${ktpData.nama}" "${ktpData.kabupatenKota || ktpData.kecamatan}" public records profile`,
+          `"${ktpData.nama}" "${ktpData.kabupatenKota || ktpData.kecamatan || ''}" public records profile social media facebook instagram`,
           5
         );
 
         for (const r of (nameAddrResults as Array<Record<string, string>>)) {
           publicRecords.push({
-            title: r.name || 'Name + Address Search',
+            title: r.name || 'Name Search Result',
             snippet: r.snippet?.substring(0, 200) || '',
             url: r.url || '',
             domain: r.host_name || '',
@@ -283,24 +239,6 @@ IMPORTANT RULES:
           }
         }
       }
-
-      // Search for name only (social media / professional profiles)
-      if (ktpData.nama) {
-        const nameResults = await safeWebSearch(
-          `"${ktpData.nama}" social media profile facebook instagram linkedin`,
-          5
-        );
-
-        for (const r of (nameResults as Array<Record<string, string>>)) {
-          publicRecords.push({
-            title: r.name || 'Name Search Result',
-            snippet: r.snippet?.substring(0, 200) || '',
-            url: r.url || '',
-            domain: r.host_name || '',
-            type: 'Social/Profile Search',
-          });
-        }
-      }
     } catch {
       // OSINT searches failed, continue with whatever data we have
     }
@@ -317,83 +255,13 @@ IMPORTANT RULES:
       : 'No public records found from search results.';
 
     const aiAnalysis = await safeAIAnalysis(
-      `You are an elite OSINT analyst specializing in Indonesian identity document intelligence and geolocation tracking.
-Analyze the extracted KTP data and provide a COMPREHENSIVE structured intelligence report with these sections:
+      `OSINT analyst for Indonesian KTP intelligence & geolocation. Report with: ## 🪪 KTP DATA VALIDATION ## 📍 GEOLOCATION INTELLIGENCE ## 🔍 PUBLIC RECORDS & DIGITAL FOOTPRINT ## 🚨 DATA BREACH & LEAK ## ⚠️ PRIVACY & SECURITY RISK ## 🎯 INVESTIGATION RECOMMENDATIONS
+Be concise. Keep each section to 2-3 lines.`,
+      `KTP: NIK=${ktpData.nik || 'N/A'} | Nama=${ktpData.nama || 'N/A'} | DOB=${ktpData.tempatTglLahir || 'N/A'} | Gender=${ktpData.jenisKelamin || 'N/A'} | Alamat=${ktpData.alamat || 'N/A'} | Kec=${ktpData.kecamatan || 'N/A'} | Prov=${ktpData.provinsi || 'N/A'} | Kota=${ktpData.kabupatenKota || 'N/A'}
+Address: ${fullAddress}
 
-## 🪪 KTP DATA VALIDATION
-- NIK number analysis (format check: should be 16 digits, check digit patterns)
-- Data consistency check (e.g., does gender match NIK encoding? NIK encodes DOB and gender)
-- Field completeness assessment (which fields are present/missing)
-- NIK decoding: extract DOB, gender, and region codes from NIK structure
-  - Digits 1-6: Region code (province + city/kecamatan)
-  - Digits 7-12: DOB (DDMMYY, females add 40 to day)
-  - Digits 13-16: Sequential registration number
-
-## 📍 GEOLOCATION INTELLIGENCE
-- Full address analysis
-- Province and regency/city identification
-- Administrative area context
-- Geographic coordinates and accuracy assessment
-- Map visualization links
-
-## 🔍 PUBLIC RECORDS & DIGITAL FOOTPRINT
-- Social media profiles found
-- Professional records
-- Public documents or mentions
-- Cross-referenced identities
-
-## 🚨 DATA BREACH & LEAK ASSESSMENT
-- NIK exposure in known data breaches
-- Personal data leaks
-- Identity theft risk level
-- Compromised information types
-- Severity classification
-
-## ⚠️ PRIVACY & SECURITY RISK
-- Overall risk level (LOW / MEDIUM / HIGH / CRITICAL)
-- Identity theft potential
-- Recommended protective measures
-- What to monitor going forward
-
-## 🎯 INVESTIGATION RECOMMENDATIONS
-- Further verification steps
-- Additional OSINT techniques to apply
-- Cross-reference suggestions
-- Monitoring recommendations
-
-Be thorough, specific, and include all findings. Use emojis for section headers. Format with markdown.`,
-      `KTP DATA EXTRACTED:
-- NIK: ${ktpData.nik || 'N/A'}
-- Nama: ${ktpData.nama || 'N/A'}
-- Tempat/Tgl Lahir: ${ktpData.tempatTglLahir || 'N/A'}
-- Jenis Kelamin: ${ktpData.jenisKelamin || 'N/A'}
-- Alamat: ${ktpData.alamat || 'N/A'}
-- RT/RW: ${ktpData.rtRw || 'N/A'}
-- Kel/Desa: ${ktpData.kelDesa || 'N/A'}
-- Kecamatan: ${ktpData.kecamatan || 'N/A'}
-- Agama: ${ktpData.agama || 'N/A'}
-- Status: ${ktpData.statusPerkawinan || 'N/A'}
-- Pekerjaan: ${ktpData.pekerjaan || 'N/A'}
-- Kewarganegaraan: ${ktpData.kewarganegaraan || 'N/A'}
-- Provinsi: ${ktpData.provinsi || 'N/A'}
-- Kabupaten/Kota: ${ktpData.kabupatenKota || 'N/A'}
-- Berlaku Hingga: ${ktpData.berlakuHingga || 'N/A'}
-
-FULL ADDRESS: ${fullAddress}
-
-LOCATION COORDINATES: ${location.latitude !== null ? `${location.latitude}, ${location.longitude}` : 'Not determined'}
-
-MAP URLS:
-- Google Maps: ${location.mapUrl}
-- OpenStreetMap: ${location.openStreetMapUrl}
-
-DATA LEAKS:
-${leakSummary}
-
-PUBLIC RECORDS:
-${recordSummary}
-
-Provide a comprehensive KTP intelligence and location tracking report.`
+Leaks: ${leakSummary.substring(0, 500)}
+Records: ${recordSummary.substring(0, 500)}`
     );
 
     // ----------------------------------------------------------

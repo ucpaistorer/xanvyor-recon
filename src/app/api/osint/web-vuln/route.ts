@@ -17,18 +17,12 @@ export async function POST(request: NextRequest) {
     }
 
     // Run parallel web searches for vulnerability intelligence
-    const [sqliResults, xssResults, csrfResults, redirectResults, dirTraversalResults, infoDisclosureResults, outdatedResults, exposedPanelResults, cveResults, misconfigResults] = await sequentialWebSearch([
-      { query: `"${hostname}" SQL injection vulnerability CVE exploit`, num: 8 },
-      { query: `"${hostname}" XSS cross-site scripting vulnerability reflected stored DOM`, num: 8 },
-      { query: `"${hostname}" CSRF cross-site request forgery vulnerability token`, num: 6 },
-      { query: `"${hostname}" open redirect vulnerability URL redirection exploit`, num: 6 },
-      { query: `"${hostname}" directory traversal path traversal LFI RFI vulnerability`, num: 6 },
-      { query: `"${hostname}" information disclosure sensitive data exposure error message debug`, num: 8 },
-      { query: `"${hostname}" outdated software version vulnerability CVE exploit known`, num: 8 },
-      { query: `"${hostname}" exposed admin panel dashboard login phpmyadmin wp-admin debug endpoint API`, num: 8 },
-      { query: `"${hostname}" CVE vulnerability advisory security patch 2024 2025`, num: 8 },
-      { query: `"${hostname}" misconfiguration security vulnerability CORS headers server`, num: 6 },
-    ], 1500);
+    const [sqliResults, xssResults, infoDisclosureResults, cveResults] = await sequentialWebSearch([
+      { query: `"${hostname}" SQL injection XSS cross-site scripting CSRF vulnerability CVE exploit`, num: 5 },
+      { query: `"${hostname}" directory traversal LFI RFI open redirect vulnerability outdated software`, num: 5 },
+      { query: `"${hostname}" information disclosure exposed admin panel misconfiguration CORS security`, num: 5 },
+      { query: `"${hostname}" CVE vulnerability advisory security patch 2024 2025`, num: 5 },
+    ], 800);
 
     // Parse search results
     const parseResults = (results: unknown[]) => {
@@ -45,14 +39,14 @@ export async function POST(request: NextRequest) {
 
     const sqliData = parseResults(sqliResults);
     const xssData = parseResults(xssResults);
-    const csrfData = parseResults(csrfResults);
-    const redirectData = parseResults(redirectResults);
-    const dirTraversalData = parseResults(dirTraversalResults);
     const infoData = parseResults(infoDisclosureResults);
-    const outdatedData = parseResults(outdatedResults);
-    const exposedData = parseResults(exposedPanelResults);
     const cveData = parseResults(cveResults);
-    const misconfigData = parseResults(misconfigResults);
+    const csrfData = sqliData;
+    const redirectData = xssData;
+    const dirTraversalData = infoData;
+    const outdatedData = cveData;
+    const exposedData = infoData;
+    const misconfigData = infoData;
 
     // Helper to check if vulnerabilities found
     const hasVulnMention = (data: Array<{ title: string; snippet: string }>, keywords: string[]) => {
@@ -202,32 +196,16 @@ export async function POST(request: NextRequest) {
 
     // AI Analysis
     const aiAnalysis = await safeAIAnalysis(
-      `You are a penetration testing and web vulnerability expert. Analyze the following vulnerability intelligence data for "${hostname}" and provide a detailed vulnerability assessment. Be specific about found vulnerabilities, their impact, and remediation steps. Respond in markdown format.`,
-      `Web Vulnerability Assessment for: ${hostname}
+      `Penetration testing expert for web vulnerabilities. Report with: ## 📋 EXECUTIVE SUMMARY ## 🔴 CRITICAL VULNERABILITIES ## 🟠 HIGH RISK FINDINGS ## 🟡 MEDIUM RISK FINDINGS ## 🎯 ATTACK SURFACE ## 🛡️ REMEDIATION PRIORITY ## 📊 OWASP MAPPING
+Be concise. Keep each section to 2-3 lines.`,
+      `Vuln scan for: ${hostname}
 
-SQL Injection: ${sqliData.map(r => `${r.title}: ${r.snippet}`).join('; ')}
-XSS: ${xssData.map(r => `${r.title}: ${r.snippet}`).join('; ')}
-CSRF: ${csrfData.map(r => `${r.title}: ${r.snippet}`).join('; ')}
-Open Redirect: ${redirectData.map(r => `${r.title}: ${r.snippet}`).join('; ')}
-Directory Traversal: ${dirTraversalData.map(r => `${r.title}: ${r.snippet}`).join('; ')}
-Information Disclosure: ${infoData.map(r => `${r.title}: ${r.snippet}`).join('; ')}
-Outdated Software: ${outdatedData.map(r => `${r.title}: ${r.snippet}`).join('; ')}
-Exposed Admin Panels: ${exposedData.map(r => `${r.title}: ${r.snippet}`).join('; ')}
-Known CVEs: ${cveData.map(r => `${r.title}: ${r.snippet}`).join('; ')}
-Misconfiguration: ${misconfigData.map(r => `${r.title}: ${r.snippet}`).join('; ')}
+SQLi: ${sqliData.map(r => `${r.title}: ${r.snippet}`).join('; ').substring(0, 200)}
+XSS: ${xssData.map(r => `${r.title}: ${r.snippet}`).join('; ').substring(0, 200)}
+Info: ${infoData.map(r => `${r.title}: ${r.snippet}`).join('; ').substring(0, 200)}
+CVE: ${cveData.map(r => `${r.title}: ${r.snippet}`).join('; ').substring(0, 200)}
 
-Vulnerability Summary: ${vulnCount} vulnerabilities found (${criticalCount} critical, ${highCount} high, ${mediumCount} medium)
-Overall Vulnerability Score: ${vulnScore}/100
-Threat Level: ${threatLevel}
-
-Please provide:
-1. **Executive Summary** - High-level risk overview
-2. **Critical Vulnerabilities** - Details and immediate action items
-3. **High Risk Findings** - Significant security concerns
-4. **Medium Risk Findings** - Areas needing attention
-5. **Attack Surface Analysis** - Entry points and risks
-6. **Remediation Priority** - Ranked list of fixes
-7. **Compliance Impact** - OWASP Top 10 mapping`
+Vulns: ${vulnCount} (${criticalCount} critical, ${highCount} high, ${mediumCount} medium) | Score: ${vulnScore}/100 | Threat: ${threatLevel}`
     );
 
     return NextResponse.json({

@@ -448,48 +448,31 @@ export async function POST(request: NextRequest) {
     // ============================================================
     const [
       deviceResults,
-      imeiResults,
       appResults,
-      phoneModelResults,
-      osDetectionResults,
-      accountRegResults,
       leakResults,
       securityResults,
     ] = await sequentialWebSearch([
-      // Device type associated with this number
-      { query: `"${phone}" OR "${variants.local}" device type phone model handset smartphone tablet`, num: 8 },
-      // IMEI / device info from public sources
-      { query: `"${phone}" OR "${variants.local}" IMEI device info hardware serial number`, num: 8 },
-      // App registration data (WhatsApp device, Telegram device, etc.)
-      { query: `"${phone}" OR "${variants.local}" whatsapp telegram signal registered account device last seen`, num: 8 },
-      // Phone model/type detection
-      { query: `"${phone}" OR "${variants.local}" phone model samsung xiaomi oppo vivo iphone android iOS detected`, num: 8 },
-      // OS detection
-      { query: `"${phone}" OR "${variants.local}" operating system android iOS device platform OS version`, num: 8 },
-      // Account registrations across platforms
-      { query: `"${phone}" OR "${variants.local}" registered account site:facebook.com OR site:instagram.com OR site:linkedin.com OR site:tiktok.com OR site:twitter.com OR site:shopee.com OR site:tokopedia.com`, num: 8 },
-      // Data leaks with device info
-      { query: `"${phone}" OR "${variants.local}" data breach leak exposed compromised device info password`, num: 8 },
-      // Security & 2FA info
-      { query: `"${phone}" OR "${variants.local}" two factor authentication 2FA security account verification`, num: 8 },
-    ], 1500);
+      { query: `"${phone}" OR "${variants.local}" device type phone model IMEI smartphone tablet android iOS`, num: 5 },
+      { query: `"${phone}" OR "${variants.local}" whatsapp telegram signal registered account device social media`, num: 5 },
+      { query: `"${phone}" OR "${variants.local}" data breach leak exposed compromised device info password`, num: 5 },
+      { query: `"${phone}" OR "${variants.local}" two factor authentication 2FA security account verification`, num: 5 },
+    ], 800);
 
     // Parse all results
     const deviceData = parseResults(deviceResults);
-    const imeiData = parseResults(imeiResults);
     const appData = parseResults(appResults);
-    const phoneModelData = parseResults(phoneModelResults);
-    const osData = parseResults(osDetectionResults);
-    const accountData = parseResults(accountRegResults);
     const leakData = parseResults(leakResults);
     const securityData = parseResults(securityResults);
+    const imeiData = deviceData;
+    const phoneModelData = deviceData;
+    const osData = deviceData;
+    const accountData = appData;
 
     // ============================================================
     // Combine all text for detection
     // ============================================================
     const allSearchText = [
-      ...deviceData, ...imeiData, ...appData, ...phoneModelData,
-      ...osData, ...accountData, ...leakData, ...securityData,
+      ...deviceData, ...appData, ...leakData, ...securityData,
     ].map(r => `${r.title} ${r.snippet} ${r.domain}`.toLowerCase()).join(' ');
 
     // ============================================================
@@ -572,86 +555,18 @@ export async function POST(request: NextRequest) {
     // ============================================================
     const allContext = [
       ...deviceData.slice(0, 4).map(r => `[DEVICE] ${r.title}: ${r.snippet}`),
-      ...imeiData.slice(0, 3).map(r => `[IMEI] ${r.title}: ${r.snippet}`),
       ...appData.slice(0, 4).map(r => `[APP] ${r.title}: ${r.snippet}`),
-      ...phoneModelData.slice(0, 3).map(r => `[MODEL] ${r.title}: ${r.snippet}`),
-      ...osData.slice(0, 3).map(r => `[OS] ${r.title}: ${r.snippet}`),
-      ...accountData.slice(0, 3).map(r => `[ACCOUNT] ${r.title}: ${r.snippet}`),
       ...leakData.slice(0, 3).map(r => `[LEAK] ${r.title}: ${r.snippet}`),
       ...securityData.slice(0, 3).map(r => `[SECURITY] ${r.title}: ${r.snippet}`),
     ].join('\n\n');
 
     const aiAnalysis = allContext.length > 0
       ? await safeAIAnalysis(
-          `You are an elite OSINT analyst specializing in phone device intelligence, digital device fingerprinting, and connected service investigation. Analyze the phone number data and provide a COMPREHENSIVE structured intelligence report with these sections:
+          `OSINT analyst for phone device intelligence. Report with: ## 📱 DEVICE INTELLIGENCE ## 🔗 CONNECTED APPS & SERVICES ## 🔐 ACCOUNT SECURITY ## 📡 CONNECTED DEVICES ## 🚨 DATA LEAK ASSESSMENT ## 🎯 RECOMMENDATIONS
+Be concise. Keep each section to 2-3 lines.`,
+          `Phone: ${phone} | Country: ${countryInfo.country} | Carrier: ${carrierInfo.carrier} | Device: ${deviceInfo.likelyDeviceType} | OS: ${deviceInfo.likelyOS} | Models: ${deviceInfo.detectedModels.join(', ') || 'None'} | Apps: ${registeredApps.filter(a => a.detected).map(a => a.name).join(', ') || 'None'} | 2FA: ${twoFactorEnabled === null ? 'Unknown' : twoFactorEnabled} | Security: ${securityScore}/100 | Leaks: ${dataLeaks.length}
 
-## 📱 DEVICE INTELLIGENCE
-- Likely device type (Smartphone, Feature Phone, Tablet, etc.)
-- Detected phone models and brands
-- Operating system (Android/iOS/Other) with version hints if available
-- Device hardware specifications if found
-- IMEI or device identifier information
-- Confidence level of device identification
-
-## 🔗 CONNECTED APPS & SERVICES
-- Which apps and services this phone number is registered on
-- Messaging apps (WhatsApp, Telegram, Signal, Line, etc.) with device info
-- Social media accounts and their platform details
-- E-commerce and financial services (Shopee, Tokopedia, Dana, OVO, Gopay, Banking apps)
-- Service and ride-hailing apps (Grab, Gojek, etc.)
-- Professional platforms (LinkedIn, etc.)
-- Caller ID services (Truecaller, GetContact)
-- For each, note detection confidence and any device/session details
-
-## 🔐 ACCOUNT SECURITY ASSESSMENT
-- Two-factor authentication (2FA) status across platforms
-- Password security indicators
-- Last known security changes
-- Account compromise indicators
-- Overall security score assessment (0-100)
-- Risk level: LOW / MEDIUM / HIGH / CRITICAL
-
-## 📡 CONNECTED DEVICES
-- Multi-device sessions detected (WhatsApp Web, Telegram Desktop, etc.)
-- Cross-platform device connections
-- Active sessions and last known activity
-- Device switching patterns if detectable
-
-## 🚨 DATA LEAK ASSESSMENT
-- Any data breaches involving this phone number
-- Exposed personal information (credentials, identity documents)
-- Leak severity classification
-- Compromised platforms and accounts
-- Dark web mentions if any
-
-## 🎯 RECOMMENDATIONS
-- Security improvement suggestions
-- Privacy protection measures
-- Account recovery steps if compromised
-- Device security hardening tips
-- Monitoring recommendations
-
-Be thorough, specific, and analytical. Include all findings from the data. Use emojis for section headers. Note that this analysis is for authorized security research only.`,
-          `Analyze phone number: ${phone}
-Local format: ${variants.local}
-International: ${variants.international}
-Country: ${countryInfo.country} (${countryInfo.countryCode})
-Carrier: ${carrierInfo.carrier}
-Number type: ${carrierInfo.numberType}
-Detected device: ${deviceInfo.likelyDeviceType}
-Detected OS: ${deviceInfo.likelyOS}
-Detected models: ${deviceInfo.detectedModels.join(', ') || 'None'}
-Detected apps: ${registeredApps.filter(a => a.detected).map(a => a.name).join(', ') || 'None'}
-Connected devices: ${connectedDevices.map(d => `${d.device} (${d.os})`).join(', ') || 'None'}
-2FA enabled: ${twoFactorEnabled === null ? 'Unknown' : twoFactorEnabled}
-Compromised accounts: ${compromisedAccounts.join(', ') || 'None detected'}
-Security score: ${securityScore}/100
-Data leaks found: ${dataLeaks.length}
-
-Intelligence data:
-${allContext}
-
-Provide a complete phone device intelligence report.`
+${allContext.substring(0, 1500)}`
         )
       : 'No device intelligence data available for this phone number.';
 

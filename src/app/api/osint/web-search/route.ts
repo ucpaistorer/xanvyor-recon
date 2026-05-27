@@ -3,12 +3,12 @@ import { safeWebSearch, safeAIAnalysis } from '@/lib/zai';
 
 export async function POST(request: NextRequest) {
   try {
-    const { query, num = 10 } = await request.json();
+    const { query, num = 5 } = await request.json();
     if (!query) {
       return NextResponse.json({ error: 'Query is required' }, { status: 400 });
     }
 
-    const results = await safeWebSearch(query, Math.min(num, 20));
+    const results = await safeWebSearch(query, Math.min(num, 10));
 
     // AI-powered analysis of search results
     const searchContext = results
@@ -18,8 +18,11 @@ export async function POST(request: NextRequest) {
 
     const aiAnalysis = results.length > 0
       ? await safeAIAnalysis(
-          'You are an OSINT analyst. Analyze web search results and provide intelligence insights. Focus on: key findings, connections, threat indicators, and actionable intelligence. Be concise but thorough.',
-          `Analyze these web search results for OSINT intelligence regarding: "${query}"\n\n${searchContext}\n\nProvide a structured intelligence analysis.`
+          `OSINT analyst. Report with: ## 🔍 KEY FINDINGS ## 🔗 CONNECTIONS ## ⚠️ THREAT INDICATORS ## 🎯 ACTIONABLE INTELLIGENCE
+Be concise. Keep each section to 2-3 lines.`,
+          `Query: "${query}"
+
+${searchContext.substring(0, 1500)}`
         )
       : 'No search results available for analysis.';
 

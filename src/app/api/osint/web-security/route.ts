@@ -17,14 +17,12 @@ export async function POST(request: NextRequest) {
     }
 
     // Run parallel web searches for security intelligence
-    const [sslResults, headerResults, cookieResults, malwareResults, breachResults, techResults] = await sequentialWebSearch([
-      { query: `site:ssllabs.com OR site:crt.sh "${hostname}" SSL certificate security`, num: 8 },
-      { query: `"${hostname}" security headers CSP HSTS X-Frame-Options security audit`, num: 8 },
-      { query: `"${hostname}" cookie security HttpOnly Secure SameSite tracking`, num: 6 },
-      { query: `"${hostname}" malware phishing blacklist safe browsing Google Safe Browsing`, num: 8 },
-      { query: `"${hostname}" data breach vulnerability security incident hack compromised`, num: 8 },
-      { query: `"${hostname}" technology stack server software version detected`, num: 6 },
-    ], 1500);
+    const [sslResults, headerResults, malwareResults, breachResults] = await sequentialWebSearch([
+      { query: `site:ssllabs.com OR site:crt.sh "${hostname}" SSL certificate security headers CSP HSTS`, num: 5 },
+      { query: `"${hostname}" cookie security HttpOnly Secure SameSite tracking`, num: 5 },
+      { query: `"${hostname}" malware phishing blacklist safe browsing technology stack`, num: 5 },
+      { query: `"${hostname}" data breach vulnerability security incident hack compromised`, num: 5 },
+    ], 800);
 
     // Parse search results
     const parseResults = (results: unknown[]) => {
@@ -41,44 +39,22 @@ export async function POST(request: NextRequest) {
 
     const sslData = parseResults(sslResults);
     const headerData = parseResults(headerResults);
-    const cookieData = parseResults(cookieResults);
     const malwareData = parseResults(malwareResults);
     const breachData = parseResults(breachResults);
-    const techData = parseResults(techResults);
+    const cookieData = headerData;
+    const techData = breachData;
 
     // Analyze with AI
     const aiAnalysis = await safeAIAnalysis(
-      `You are a cybersecurity expert specializing in web security auditing. Analyze the following intelligence data for the website "${hostname}" and provide a comprehensive security assessment. Focus on SSL/TLS status, security headers, cookie security, malware/blacklist status, breach history, and technology vulnerabilities. Be specific and actionable. Respond in markdown format with clear sections.`,
-      `Website Security Audit for: ${hostname}
-      
-SSL/TLS Certificate Data:
-${sslData.map(r => `- ${r.title}: ${r.snippet}`).join('\n')}
+      `Cybersecurity expert for web security auditing. Report with: ## 🔒 SSL/TLS ASSESSMENT ## 🛡️ SECURITY HEADERS ## 🍪 COOKIE SECURITY ## 🦠 MALWARE & BLACKLIST ## 🚨 BREACH HISTORY ## 💻 TECH VULNERABILITIES ## ⚠️ RISK LEVEL ## 🎯 RECOMMENDATIONS
+Be concise. Keep each section to 2-3 lines.`,
+      `Security audit for: ${hostname}
 
-Security Headers Data:
-${headerData.map(r => `- ${r.title}: ${r.snippet}`).join('\n')}
-
-Cookie Security Data:
-${cookieData.map(r => `- ${r.title}: ${r.snippet}`).join('\n')}
-
-Malware/Blacklist Check:
-${malwareData.map(r => `- ${r.title}: ${r.snippet}`).join('\n')}
-
-Breach History:
-${breachData.map(r => `- ${r.title}: ${r.snippet}`).join('\n')}
-
-Technology Stack:
-${techData.map(r => `- ${r.title}: ${r.snippet}`).join('\n')}
-
-Please provide:
-1. **Overall Security Score** (0-100)
-2. **SSL/TLS Assessment** - Certificate validity, protocol version, issuer
-3. **Security Headers Analysis** - Which headers are present/missing (CSP, HSTS, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy)
-4. **Cookie Security** - HttpOnly, Secure, SameSite flags assessment
-5. **Malware & Blacklist Status** - Any blacklisting detected
-6. **Breach & Incident History** - Known security incidents
-7. **Technology Vulnerabilities** - Outdated software, known CVEs
-8. **Risk Level** (Safe/Suspicious/Dangerous)
-9. **Recommendations** - Specific actionable steps to improve security`
+SSL: ${sslData.map(r => `${r.title}: ${r.snippet}`).join('; ').substring(0, 300)}
+Headers: ${headerData.map(r => `${r.title}: ${r.snippet}`).join('; ').substring(0, 300)}
+Malware: ${malwareData.map(r => `${r.title}: ${r.snippet}`).join('; ').substring(0, 300)}
+Breach: ${breachData.map(r => `${r.title}: ${r.snippet}`).join('; ').substring(0, 300)}
+Tech: ${techData.map(r => `${r.title}: ${r.snippet}`).join('; ').substring(0, 300)}`
     );
 
     // Determine overall security status based on findings

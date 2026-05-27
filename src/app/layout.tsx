@@ -14,12 +14,12 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "RECON - OSINT Intelligence Platform",
+  title: "XANVYOR RECON - OSINT Intelligence Platform",
   description: "Advanced AI-Powered Open Source Intelligence Gathering & Analysis Platform. Username search, email intel, IP recon, domain analysis, and more.",
-  keywords: ["OSINT", "Intelligence", "Reconnaissance", "Cyber Security", "Digital Forensics"],
-  authors: [{ name: "RECON OSINT" }],
+  keywords: ["OSINT", "Intelligence", "Reconnaissance", "Cyber Security", "Digital Forensics", "XANVYOR"],
+  authors: [{ name: "XANVYOR RECON" }],
   icons: {
-    icon: "https://z-cdn.chatglm.cn/z-ai/static/logo.svg",
+    icon: "/logo.png",
   },
 };
 

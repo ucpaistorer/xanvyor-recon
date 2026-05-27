@@ -12,17 +12,13 @@ export async function POST(request: NextRequest) {
     const domainAnalysis = analyzeDomain(domain);
 
     // Sequential searches for comprehensive domain OSINT
-    const whoisSearch = await safeWebSearch(`${domain} WHOIS registration domain info owner registrant`, 10);
-    const subdomainSearch = await safeWebSearch(`${domain} subdomains enum site:${domain}`, 8);
-    const sslSearch = await safeWebSearch(`${domain} SSL certificate security TLS HTTPS`, 5);
-    const techSearch = await safeWebSearch(`${domain} technology stack built with powered by CMS`, 5);
-    const reputationSearch = await safeWebSearch(`${domain} reputation malware phishing scam blacklist`, 8);
+    const whoisSearch = await safeWebSearch(`${domain} WHOIS registration domain info owner subdomains`, 5);
+    const techSearch = await safeWebSearch(`${domain} technology stack SSL certificate security TLS HTTPS`, 5);
+    const reputationSearch = await safeWebSearch(`${domain} reputation malware phishing scam blacklist`, 5);
 
     // Combine all results for analysis
     const allResults = [
       ...(whoisSearch as Array<Record<string, string>>),
-      ...(subdomainSearch as Array<Record<string, string>>),
-      ...(sslSearch as Array<Record<string, string>>),
       ...(techSearch as Array<Record<string, string>>),
       ...(reputationSearch as Array<Record<string, string>>),
     ];
@@ -84,64 +80,17 @@ export async function POST(request: NextRequest) {
     // AI analysis
     const allContext = [
       ...(whoisSearch as Array<Record<string, string>>).slice(0, 4).map((r: Record<string, string>) => `[WHOIS] ${r.name}: ${r.snippet}`),
-      ...(subdomainSearch as Array<Record<string, string>>).slice(0, 3).map((r: Record<string, string>) => `[SUBDOMAIN] ${r.name}: ${r.snippet}`),
-      ...(sslSearch as Array<Record<string, string>>).slice(0, 2).map((r: Record<string, string>) => `[SSL] ${r.name}: ${r.snippet}`),
-      ...(techSearch as Array<Record<string, string>>).slice(0, 2).map((r: Record<string, string>) => `[TECH] ${r.name}: ${r.snippet}`),
-      ...(reputationSearch as Array<Record<string, string>>).slice(0, 2).map((r: Record<string, string>) => `[REPUTATION] ${r.name}: ${r.snippet}`),
+      ...(techSearch as Array<Record<string, string>>).slice(0, 3).map((r: Record<string, string>) => `[TECH/SSL] ${r.name}: ${r.snippet}`),
+      ...(reputationSearch as Array<Record<string, string>>).slice(0, 3).map((r: Record<string, string>) => `[REPUTATION] ${r.name}: ${r.snippet}`),
     ].join('\n\n');
 
     const aiAnalysis = allContext.length > 0
       ? await safeAIAnalysis(
-          `You are an elite OSINT analyst specializing in domain intelligence and cybersecurity reconnaissance.
-Analyze the domain intelligence data and provide a COMPREHENSIVE structured intelligence report with these sections:
+          `OSINT analyst for domain intelligence. Report with: ## 🌐 DOMAIN OVERVIEW ## 🏗️ INFRASTRUCTURE ANALYSIS ## 🔒 SECURITY POSTURE ## 🔍 SUBDOMAIN ENUMERATION ## 🛡️ REPUTATION ASSESSMENT ## 💻 TECHNOLOGY FINGERPRINT ## 📊 RISK ASSESSMENT ## 🎯 RECOMMENDATIONS
+Be concise. Keep each section to 2-3 lines.`,
+          `Domain: ${domain} | TLD: ${domainAnalysis.tld} | Type: ${domainAnalysis.type} | Rep: ${reputation} | Tech: ${detectedTech.join(', ') || 'none'} | Subdomains: ${uniqueSubdomains.length} | SSL: ${sslDetected ? 'yes' : 'unknown'}
 
-## 🌐 DOMAIN OVERVIEW
-- Domain registration details
-- Registrar and registrant information
-- Registration and expiration dates
-- Name servers
-
-## 🏗️ INFRASTRUCTURE ANALYSIS
-- Hosting provider and IP addresses
-- Content Delivery Network (CDN)
-- Cloud provider identification
-- Server technology fingerprint
-
-## 🔒 SECURITY POSTURE
-- SSL/TLS certificate assessment
-- Certificate authority and validity
-- HTTPS enforcement
-- Security headers hints
-
-## 🔍 SUBDOMAIN ENUMERATION
-- Discovered subdomains
-- Subdomain purpose analysis
-- Attack surface from subdomains
-
-## 🛡️ REPUTATION ASSESSMENT
-- Domain reputation status
-- Blacklist check results
-- Malware/phishing indicators
-- Trust score
-
-## 💻 TECHNOLOGY FINGERPRINT
-- Detected web technologies
-- CMS identification
-- Framework and server software
-- Third-party services
-
-## 📊 RISK ASSESSMENT
-- Overall risk score (Low/Medium/High/Critical)
-- Vulnerability indicators
-- Attack surface summary
-
-## 🎯 RECOMMENDATIONS
-- Further investigation steps
-- Security improvements
-- Monitoring suggestions
-
-Be thorough and specific. Use emojis for section headers.`,
-          `Analyze domain: ${domain}\nTLD: ${domainAnalysis.tld}, Type: ${domainAnalysis.type}\nReputation: ${reputation}\nDetected Tech: ${detectedTech.join(', ') || 'none'}\nSubdomains found: ${uniqueSubdomains.length}\nSSL: ${sslDetected ? 'detected' : 'unknown'}\n\nIntelligence data:\n${allContext}\n\nProvide a comprehensive domain intelligence report.`
+${allContext.substring(0, 1500)}`
         )
       : 'No domain intelligence data available.';
 
@@ -163,12 +112,12 @@ Be thorough and specific. Use emojis for section headers.`,
         snippet: r.snippet,
         date: r.date || '',
       })),
-      subdomainResults: (subdomainSearch as Array<Record<string, string>>).map((r: Record<string, string>) => ({
+      subdomainResults: (whoisSearch as Array<Record<string, string>>).map((r: Record<string, string>) => ({
         url: r.url,
         title: r.name,
         snippet: r.snippet,
       })),
-      sslResults: (sslSearch as Array<Record<string, string>>).map((r: Record<string, string>) => ({
+      sslResults: (techSearch as Array<Record<string, string>>).map((r: Record<string, string>) => ({
         url: r.url,
         title: r.name,
         snippet: r.snippet,

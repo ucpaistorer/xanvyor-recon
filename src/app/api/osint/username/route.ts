@@ -65,13 +65,12 @@ export async function POST(request: NextRequest) {
     }
 
     // Sequential searches for comprehensive username OSINT
-    const generalSearch = await safeWebSearch(`"${username}" username profile account`, 10);
-    const socialSearch = await safeWebSearch(`"${username}" site:twitter.com OR site:instagram.com OR site:facebook.com OR site:linkedin.com`, 8);
-    const devSearch = await safeWebSearch(`"${username}" site:github.com OR site:gitlab.com OR site:stackoverflow.com`, 8);
-    const leakSearch = await safeWebSearch(`"${username}" data breach leak paste compromised`, 8);
+    const generalSearch = await safeWebSearch(`"${username}" username profile account`, 5);
+    const socialSearch = await safeWebSearch(`"${username}" site:twitter.com OR site:instagram.com OR site:facebook.com OR site:linkedin.com OR site:github.com data breach leak`, 5);
+    const devSearch = await safeWebSearch(`"${username}" site:github.com OR site:gitlab.com OR site:stackoverflow.com`, 5);
 
     // Combine all search results for platform detection
-    const allResults = [...generalSearch, ...socialSearch, ...devSearch, ...leakSearch] as Array<Record<string, string>>;
+    const allResults = [...generalSearch, ...socialSearch, ...devSearch] as Array<Record<string, string>>;
     const allSearchText = allResults.map((r: Record<string, string>) => `${r.name ?? ''} ${r.snippet ?? ''} ${r.url ?? ''}`.toLowerCase()).join(' ');
 
     // Check which platforms are likely to have this username
@@ -126,48 +125,20 @@ export async function POST(request: NextRequest) {
       .map((r: Record<string, string>, i: number) => `${i + 1}. ${r.name}\n   ${r.snippet}\n   ${r.url}`)
       .join('\n\n');
 
-    const leakContext = (leakSearch as Array<Record<string, string>>)
+    const leakContext = (socialSearch as Array<Record<string, string>>)
       .slice(0, 5)
       .map((r: Record<string, string>) => `[BREACH] ${r.name}: ${r.snippet}`)
       .join('\n');
 
     const aiAnalysis = searchContext.length > 0
       ? await safeAIAnalysis(
-          `You are an elite OSINT analyst specializing in digital identity investigation and username intelligence.
-Analyze the username search results and provide a COMPREHENSIVE intelligence report with these sections:
+          `OSINT analyst for username intelligence. Report with: ## 🔍 USERNAME ANALYSIS ## 📊 PLATFORM PRESENCE ## 👤 IDENTITY ASSESSMENT ## 🚨 BREACH & EXPOSURE ## 🔗 DIGITAL FOOTPRINT MAP ## 🎯 INVESTIGATION RECOMMENDATIONS
+Be concise. Keep each section to 2-3 lines.`,
+          `Username: "${username}"
 
-## 🔍 USERNAME ANALYSIS
-- Username pattern analysis (meaning, structure, likely origin)
-- Estimated account creation period
-- Username variations and aliases
+General: ${searchContext.substring(0, 800)}
 
-## 📊 PLATFORM PRESENCE
-- Which platforms this username was found on
-- Activity level assessment per platform
-- Account age indicators
-
-## 👤 IDENTITY ASSESSMENT
-- Likely real person or pseudonym
-- Associated identities and cross-links
-- Digital persona analysis
-
-## 🚨 BREACH & EXPOSURE
-- Data breaches involving this username
-- Credential exposure assessment
-- Associated email addresses if found
-
-## 🔗 DIGITAL FOOTPRINT MAP
-- Online presence overview
-- Interconnections between platforms
-- Activity patterns
-
-## 🎯 INVESTIGATION RECOMMENDATIONS
-- Priority platforms for further investigation
-- Cross-referencing suggestions
-- Verification steps
-
-Be thorough and specific. Use emojis for section headers.`,
-          `Analyze search results for username "${username}":\n\nGeneral search:\n${searchContext}\n\nBreach/Leak data:\n${leakContext}\n\nProvide a structured OSINT analysis of this username's digital footprint.`
+Breach: ${leakContext.substring(0, 700)}`
         )
       : 'No search results found for this username.';
 
@@ -185,7 +156,7 @@ Be thorough and specific. Use emojis for section headers.`,
         snippet: r.snippet,
         domain: r.host_name,
       })),
-      breachResults: (leakSearch as Array<Record<string, string>>).map((r: Record<string, string>) => ({
+      breachResults: (socialSearch as Array<Record<string, string>>).map((r: Record<string, string>) => ({
         url: r.url,
         title: r.name,
         snippet: r.snippet,

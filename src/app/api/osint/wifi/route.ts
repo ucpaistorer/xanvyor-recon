@@ -176,59 +176,53 @@ export async function POST(request: NextRequest) {
 
     if (normalizedBSSID) {
       searchCalls.push(
-        { query: `"${normalizedBSSID}" WiFi BSSID access point location network`, num: 10 },
-        { query: `"${oui}" OUI manufacturer vendor WiFi device`, num: 8 },
-        { query: `"${normalizedBSSID}" OR "${oui}" router vulnerability CVE exploit security`, num: 10 },
-        { query: `"${normalizedBSSID}" OR "${oui}" data leak breach exposed device`, num: 10 },
-        { query: `"${oui}" WiFi access point default password configuration security`, num: 8 }
+        { query: `"${normalizedBSSID}" WiFi BSSID access point location network OUI "${oui}" manufacturer`, num: 5 },
+        { query: `"${normalizedBSSID}" OR "${oui}" router vulnerability CVE exploit security data leak`, num: 5 },
+        { query: `"${oui}" WiFi access point default password configuration security`, num: 5 }
       );
     }
 
     if (ssid) {
       searchCalls.push(
-        { query: `"${ssid}" WiFi network SSID public access point location`, num: 10 },
-        { query: `"${ssid}" WiFi network security encryption vulnerability`, num: 8 },
-        { query: `"${ssid}" SSID data leak connected devices exposure`, num: 8 }
+        { query: `"${ssid}" WiFi network SSID public access point location security encryption`, num: 5 }
       );
     }
 
     // Combined search if both provided
     if (ssid && normalizedBSSID) {
       searchCalls.push(
-        { query: `"${ssid}" "${normalizedBSSID}" WiFi network information`, num: 8 }
+        { query: `"${ssid}" "${normalizedBSSID}" WiFi network information`, num: 5 }
       );
     }
 
     // Execute sequential web searches
-    const searchResults = await sequentialWebSearch(searchCalls, 2000);
+    const searchResults = await sequentialWebSearch(searchCalls, 800);
 
     // Parse results by category
     let bssidLocationData: ReturnType<typeof parseResults> = [];
     let ouiManufacturerData: ReturnType<typeof parseResults> = [];
     let vulnerabilityData: ReturnType<typeof parseResults> = [];
-    let leakData: ReturnType<typeof parseResults> = [];
-    let securityData: ReturnType<typeof parseResults> = [];
     let ssidNetworkData: ReturnType<typeof parseResults> = [];
-    let ssidSecurityData: ReturnType<typeof parseResults> = [];
-    let ssidLeakData: ReturnType<typeof parseResults> = [];
     let combinedData: ReturnType<typeof parseResults> = [];
 
     let idx = 0;
     if (normalizedBSSID) {
-      bssidLocationData = parseResults(searchResults[idx++] || []);
-      ouiManufacturerData = parseResults(searchResults[idx++] || []);
-      vulnerabilityData = parseResults(searchResults[idx++] || []);
-      leakData = parseResults(searchResults[idx++] || []);
-      securityData = parseResults(searchResults[idx++] || []);
+      bssidLocationData = parseResults(searchResults[idx] || []);
+      ouiManufacturerData = bssidLocationData;
+      vulnerabilityData = parseResults(searchResults[idx + 1] || []);
+      idx += 3;
     }
     if (ssid) {
-      ssidNetworkData = parseResults(searchResults[idx++] || []);
-      ssidSecurityData = parseResults(searchResults[idx++] || []);
-      ssidLeakData = parseResults(searchResults[idx++] || []);
+      ssidNetworkData = parseResults(searchResults[idx] || []);
+      idx++;
     }
     if (ssid && normalizedBSSID) {
-      combinedData = parseResults(searchResults[idx++] || []);
+      combinedData = parseResults(searchResults[idx] || []);
     }
+    const securityData = vulnerabilityData;
+    const ssidSecurityData = ssidNetworkData;
+    const ssidLeakData = vulnerabilityData;
+    const leakData = vulnerabilityData;
 
     // If OUI manufacturer not found from mapping, try pattern matching on search results
     if (ouiManufacturer === 'Unknown' && ouiManufacturerData.length > 0) {
@@ -431,68 +425,11 @@ export async function POST(request: NextRequest) {
 
     const aiAnalysis = allContext.length > 0
       ? await safeAIAnalysis(
-          `You are an elite OSINT analyst specializing in WiFi network intelligence, wireless security assessment, and access point investigation.
-Analyze the WiFi access point data and provide a COMPREHENSIVE structured intelligence report with these sections:
+          `OSINT analyst for WiFi network intelligence. Report with: ## 📡 WIFI ACCESS POINT ANALYSIS ## 🏭 OUI & MANUFACTURER ## 📍 LOCATION INTELLIGENCE ## 🔐 NETWORK SECURITY ## 🚨 VULNERABILITY & EXPLOIT ## 📱 CONNECTED DEVICES ## 🛡️ SECURITY RECOMMENDATIONS
+Be concise. Keep each section to 2-3 lines.`,
+          `SSID: ${ssid || 'N/A'} | BSSID: ${normalizedBSSID || 'N/A'} | OUI: ${oui || 'N/A'} | Manufacturer: ${ouiManufacturer} | Device: ${ouiDeviceType} | Encryption: ${encryption} | Freq: ${frequency}
 
-## 📡 WIFI ACCESS POINT ANALYSIS
-- SSID analysis (naming conventions, hidden network detection, SSID cloaking)
-- BSSID breakdown and MAC address structure
-- Network type classification (infrastructure/ad-hoc/mesh)
-- Estimated network purpose and deployment type
-
-## 🏭 OUI & MANUFACTURER INTELLIGENCE
-- Identified manufacturer from OUI lookup
-- Device model identification based on OUI assignment
-- Known product lines and firmware versions
-- Manufacturer security track record
-
-## 📍 LOCATION INTELLIGENCE
-- BSSID geolocation data and accuracy
-- Access point placement and coverage area
-- Physical location inference
-- Network density and nearby APs
-
-## 🔐 NETWORK SECURITY ASSESSMENT
-- Encryption type and security posture (WPA2/WPA3/Open)
-- Authentication method analysis
-- Known weak configurations for this device type
-- WPS vulnerability assessment
-- Rogue AP / Evil Twin risk indicators
-
-## 🚨 VULNERABILITY & EXPLOIT INTELLIGENCE
-- Known CVEs for this router/AP model
-- Firmware vulnerabilities and outdated versions
-- Default credential risks
-- Wireless protocol exploits (KRACK, Dragonblood, etc.)
-- Management interface exposure
-
-## 📱 CONNECTED DEVICE INTELLIGENCE
-- Client device enumeration hints
-- Connected device type analysis
-- Data leak indicators from connected devices
-- Network traffic pattern analysis
-
-## 🛡️ SECURITY RECOMMENDATIONS
-- Immediate security hardening steps
-- Firmware update recommendations
-- Configuration best practices
-- Network monitoring suggestions
-- Risk level assessment (LOW/MEDIUM/HIGH/CRITICAL)
-
-Be thorough and specific. Include all findings from the data. Use emojis for section headers. Note that this is for authorized security research only.`,
-          `Analyze WiFi access point:
-SSID: ${ssid || 'N/A'}
-BSSID: ${normalizedBSSID || 'N/A'}
-OUI: ${oui || 'N/A'}
-Manufacturer: ${ouiManufacturer}
-Device Type: ${ouiDeviceType}
-Encryption: ${encryption}
-Frequency: ${frequency}
-
-Intelligence data:
-${allContext}
-
-Provide a complete WiFi access point OSINT intelligence report.`
+${allContext.substring(0, 1500)}`
         )
       : 'No intelligence data available for this WiFi access point.';
 

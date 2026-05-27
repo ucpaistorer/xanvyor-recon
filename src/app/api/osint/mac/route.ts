@@ -49,22 +49,15 @@ export async function POST(request: NextRequest) {
     // Sequential web searches to avoid rate limiting
     const [
       manufacturerResults,
-      deviceInfoResults,
       ouiRegistryResults,
       dataLeakResults,
       networkResults,
     ] = await sequentialWebSearch([
-      // Search for manufacturer based on OUI
-      { query: `OUI "${oui}" MAC address manufacturer vendor`, num: 10 },
-      // Search for device type and model info
-      { query: `"${normalized}" MAC address device type model hardware`, num: 10 },
-      // Search OUI registry databases
-      { query: `"${oui}" IEEE OUI registration database company assignment`, num: 8 },
-      // Search for MAC in data leaks and breaches
-      { query: `"${normalized}" OR "${oui}" data leak breach exposed IoT vulnerability`, num: 10 },
-      // Search for network device identification
-      { query: `"${normalized}" OR "${oui}" router switch access point network device`, num: 8 },
-    ], 2000);
+      { query: `OUI "${oui}" MAC address manufacturer vendor device type model hardware`, num: 5 },
+      { query: `"${oui}" IEEE OUI registration database company assignment`, num: 5 },
+      { query: `"${normalized}" OR "${oui}" data leak breach exposed IoT vulnerability router switch`, num: 5 },
+      { query: `"${normalized}" OR "${oui}" network device access point`, num: 5 },
+    ], 800);
 
     // Parse search results into uniform format
     const parseResults = (results: unknown[]) => {
@@ -77,10 +70,10 @@ export async function POST(request: NextRequest) {
     };
 
     const manufacturerData = parseResults(manufacturerResults);
-    const deviceData = parseResults(deviceInfoResults);
     const ouiData = parseResults(ouiRegistryResults);
     const leakData = parseResults(dataLeakResults);
     const networkData = parseResults(networkResults);
+    const deviceData = manufacturerData;
 
     // Extract manufacturer from OUI search results
     const manufacturerText = [...manufacturerData, ...ouiData]
@@ -215,62 +208,11 @@ export async function POST(request: NextRequest) {
 
     const aiAnalysis = allContext.length > 0
       ? await safeAIAnalysis(
-          `You are an elite OSINT analyst specializing in network device intelligence and MAC address investigation.
-Analyze the MAC address data and provide a COMPREHENSIVE structured intelligence report with these sections:
+          `OSINT analyst for MAC address & network device intelligence. Report with: ## 📋 MAC ADDRESS ANALYSIS ## 🏭 MANUFACTURER INTELLIGENCE ## 🖥️ DEVICE IDENTIFICATION ## 🚨 DATA LEAK & VULNERABILITY ## 🌐 NETWORK INTELLIGENCE ## 🔐 SECURITY ASSESSMENT ## 🎯 RECOMMENDATIONS
+Be concise. Keep each section to 2-3 lines.`,
+          `MAC: ${normalized} | OUI: ${oui} | Manufacturer: ${manufacturer} | Device: ${deviceType}
 
-## 📋 MAC ADDRESS ANALYSIS
-- Full MAC address breakdown and structure
-- OUI (Organizationally Unique Identifier) analysis
-- MAC address type (unicast/multicast, locally/global administered)
-- Vendor/manufacturer identification
-
-## 🏭 MANUFACTURER INTELLIGENCE
-- Identified manufacturer and their product lines
-- Device type based on OUI assignment
-- Known product models associated with this OUI
-- Manufacturer reputation and market segment
-
-## 🖥️ DEVICE IDENTIFICATION
-- Likely device type and category
-- Hardware model identification if possible
-- Operating system hints based on MAC patterns
-- Network behavior characteristics
-
-## 🚨 DATA LEAK & VULNERABILITY INTELLIGENCE
-- Any data breaches or leaks involving this MAC or OUI
-- Known vulnerabilities for this device type
-- IoT security concerns
-- Default credential risks
-- Malware/botnet associations
-
-## 🌐 NETWORK INTELLIGENCE
-- Network device role and placement
-- Protocol and service hints
-- Network topology implications
-- Associated network behaviors
-
-## 🔐 SECURITY ASSESSMENT
-- Device security posture
-- Attack surface evaluation
-- Known CVEs and exploits for this vendor/device
-- Risk level assessment (LOW/MEDIUM/HIGH/CRITICAL)
-
-## 🎯 INVESTIGATION RECOMMENDATIONS
-- Further verification steps
-- Network monitoring suggestions
-- Additional OSINT techniques to apply
-- Defensive recommendations
-
-Be thorough and specific. Include all findings from the data. Use emojis for section headers. Note that this is for authorized security research only.`,
-          `Analyze MAC address: ${normalized}
-OUI: ${oui}
-Manufacturer: ${manufacturer}
-Device Type: ${deviceType}
-
-Intelligence data:
-${allContext}
-
-Provide a complete MAC address OSINT intelligence report.`
+${allContext.substring(0, 1500)}`
         )
       : 'No intelligence data available for this MAC address.';
 

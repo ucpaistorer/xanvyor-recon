@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getZAI, safeWebSearch } from '@/lib/zai';
+import { safeWebSearch, safeVisionAnalysis } from '@/lib/zai';
 
 export async function POST(request: NextRequest) {
   try {
@@ -8,8 +8,6 @@ export async function POST(request: NextRequest) {
     if (!effectiveImageUrl) {
       return NextResponse.json({ error: 'Image is required (upload a file or provide URL)' }, { status: 400 });
     }
-
-    const zai = await getZAI();
 
     const analysisPrompt = prompt || `Analyze this image for OSINT intelligence. Identify and report:
 1. Location indicators (landmarks, signs, language on signs, architecture style)
@@ -23,28 +21,13 @@ export async function POST(request: NextRequest) {
 9. Reverse image search recommendations
 Provide a structured OSINT analysis report.`;
 
-    let analysis = '';
-    try {
-      const response = await zai.chat.completions.createVision({
-        messages: [
-          {
-            role: 'user',
-            content: [
-              { type: 'text', text: analysisPrompt },
-              { type: 'image_url', image_url: { url: effectiveImageUrl } },
-            ],
-          },
-        ],
-        thinking: { type: 'disabled' },
-      });
-      analysis = response.choices[0]?.message?.content || 'No analysis generated.';
-    } catch (error: unknown) {
-      const errMsg = error instanceof Error ? error.message : String(error);
-      if (errMsg.includes('429') || errMsg.toLowerCase().includes('too many requests')) {
-        analysis = 'Image analysis is temporarily rate limited. Please try again in a moment.';
-      } else {
-        analysis = `Image analysis failed: ${errMsg}. The image URL may be inaccessible or the format may not be supported.`;
-      }
+    const vlmResult = await safeVisionAnalysis(effectiveImageUrl, analysisPrompt);
+    
+    let analysis: string;
+    if (vlmResult.success) {
+      analysis = vlmResult.content || 'No analysis generated.';
+    } else {
+      analysis = vlmResult.error || 'Image analysis failed. The image URL may be inaccessible or the format may not be supported.';
     }
 
     // Also do a web search for related intel
@@ -56,8 +39,8 @@ Provide a structured OSINT analysis report.`;
         title: r.name,
         snippet: r.snippet,
       }));
-    } catch {
-      // ignore
+    } catch (e) {
+      console.error('[image-analysis] Related intel search failed:', e instanceof Error ? e.message : String(e));
     }
 
     return NextResponse.json({

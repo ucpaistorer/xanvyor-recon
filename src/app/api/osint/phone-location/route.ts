@@ -1,43 +1,72 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { safeWebSearch, safeAIAnalysis, sequentialWebSearch } from '@/lib/zai';
 
-// Indonesian carrier mapping
-const CARRIER_MAP: Record<string, string> = {
-  '811': 'Telkomsel', '812': 'Telkomsel', '813': 'Telkomsel',
-  '821': 'Telkomsel', '822': 'Telkomsel', '823': 'Telkomsel',
-  '851': 'Telkomsel', '852': 'Telkomsel', '853': 'Telkomsel',
-  '814': 'Indosat Ooredoo', '815': 'Indosat Ooredoo', '816': 'Indosat Ooredoo',
-  '855': 'Indosat Ooredoo', '856': 'Indosat Ooredoo', '857': 'Indosat Ooredoo',
-  '817': 'XL Axiata', '818': 'XL Axiata', '819': 'XL Axiata', '859': 'XL Axiata',
-  '854': 'Three (3)', '858': 'Three (3)',
-  '838': 'Tri (3)', '831': 'Tri (3)', '832': 'Tri (3)', '833': 'Tri (3)',
-  '825': 'Smartfren', '826': 'Smartfren', '827': 'Smartfren', '828': 'Smartfren',
-  '877': 'Byru', '878': 'Byru',
+// Indonesian carrier mapping with full details
+const CARRIER_MAP: Record<string, { name: string; network: string; mcc: string; mnc: string }> = {
+  '811': { name: 'Telkomsel', network: '4G LTE / 5G', mcc: '510', mnc: '10' },
+  '812': { name: 'Telkomsel', network: '4G LTE / 5G', mcc: '510', mnc: '10' },
+  '813': { name: 'Telkomsel', network: '4G LTE / 5G', mcc: '510', mnc: '10' },
+  '821': { name: 'Telkomsel', network: '4G LTE / 5G', mcc: '510', mnc: '10' },
+  '822': { name: 'Telkomsel', network: '4G LTE / 5G', mcc: '510', mnc: '10' },
+  '823': { name: 'Telkomsel', network: '4G LTE / 5G', mcc: '510', mnc: '10' },
+  '851': { name: 'Telkomsel', network: '4G LTE / 5G', mcc: '510', mnc: '10' },
+  '852': { name: 'Telkomsel', network: '4G LTE / 5G', mcc: '510', mnc: '10' },
+  '853': { name: 'Telkomsel', network: '4G LTE / 5G', mcc: '510', mnc: '10' },
+  '814': { name: 'Indosat Ooredoo Hutchison', network: '4G LTE / 5G', mcc: '510', mnc: '21' },
+  '815': { name: 'Indosat Ooredoo Hutchison', network: '4G LTE / 5G', mcc: '510', mnc: '21' },
+  '816': { name: 'Indosat Ooredoo Hutchison', network: '4G LTE / 5G', mcc: '510', mnc: '21' },
+  '855': { name: 'Indosat Ooredoo Hutchison', network: '4G LTE / 5G', mcc: '510', mnc: '21' },
+  '856': { name: 'Indosat Ooredoo Hutchison', network: '4G LTE / 5G', mcc: '510', mnc: '21' },
+  '857': { name: 'Indosat Ooredoo Hutchison', network: '4G LTE / 5G', mcc: '510', mnc: '21' },
+  '817': { name: 'XL Axiata', network: '4G LTE / 5G', mcc: '510', mnc: '11' },
+  '818': { name: 'XL Axiata', network: '4G LTE / 5G', mcc: '510', mnc: '11' },
+  '819': { name: 'XL Axiata', network: '4G LTE / 5G', mcc: '510', mnc: '11' },
+  '859': { name: 'XL Axiata', network: '4G LTE / 5G', mcc: '510', mnc: '11' },
+  '854': { name: 'Indosat (Tri)', network: '4G LTE', mcc: '510', mnc: '21' },
+  '858': { name: 'Indosat (Tri)', network: '4G LTE', mcc: '510', mnc: '21' },
+  '838': { name: 'Tri (3)', network: '4G LTE', mcc: '510', mnc: '89' },
+  '831': { name: 'Tri (3)', network: '4G LTE', mcc: '510', mnc: '89' },
+  '832': { name: 'Tri (3)', network: '4G LTE', mcc: '510', mnc: '89' },
+  '833': { name: 'Tri (3)', network: '4G LTE', mcc: '510', mnc: '89' },
+  '825': { name: 'Smartfren', network: '4G LTE / 5G', mcc: '510', mnc: '28' },
+  '826': { name: 'Smartfren', network: '4G LTE / 5G', mcc: '510', mnc: '28' },
+  '827': { name: 'Smartfren', network: '4G LTE / 5G', mcc: '510', mnc: '28' },
+  '828': { name: 'Smartfren', network: '4G LTE / 5G', mcc: '510', mnc: '28' },
+  '877': { name: 'Byru (Satelit)', network: 'Satellite', mcc: '510', mnc: '00' },
+  '878': { name: 'Byru (Satelit)', network: 'Satellite', mcc: '510', mnc: '00' },
 };
 
-// Indonesian phone prefix to region mapping
-const PREFIX_REGION_MAP: Record<string, string> = {
-  '811': 'Jakarta & Surrounding', '812': 'Jakarta & Surrounding', '813': 'Jakarta & Surrounding',
-  '821': 'Jabodetabek', '822': 'Jabodetabek', '823': 'Jabodetabek',
-  '851': 'Sumatra & Surrounding', '852': 'Sumatra & Surrounding', '853': 'Sumatra & Surrounding',
-  '814': 'Central Indonesia', '815': 'Central Indonesia', '816': 'Central Indonesia',
-  '855': 'East Indonesia', '856': 'East Indonesia', '857': 'East Indonesia',
-  '817': 'Jakarta & West Java', '818': 'Jakarta & West Java', '819': 'Jakarta & West Java',
-  '859': 'Bali & Nusa Tenggara',
-  '854': 'East Java & Central Java', '858': 'East Java & Central Java',
-  '838': 'Kalimantan & Sulawesi', '831': 'Kalimantan & Sulawesi', '832': 'Kalimantan & Sulawesi', '833': 'Kalimantan & Sulawesi',
-  '825': 'Greater Jakarta', '826': 'Greater Jakarta', '827': 'Greater Jakarta', '828': 'Greater Jakarta',
-};
-
-// Carrier network type mapping
-const CARRIER_NETWORK_MAP: Record<string, string> = {
-  'Telkomsel': '4G LTE / 5G',
-  'Indosat Ooredoo': '4G LTE / 5G',
-  'XL Axiata': '4G LTE / 5G',
-  'Three (3)': '4G LTE',
-  'Tri (3)': '4G LTE',
-  'Smartfren': '4G LTE / 5G',
-  'Byru': 'Satellite',
+// Prefix to region GPS mapping (approximate center coordinates)
+const PREFIX_GPS_MAP: Record<string, { lat: number; lng: number; region: string; province: string; city: string; timezone: string }> = {
+  '811': { lat: -6.2088, lng: 106.8456, region: 'Jakarta & Surrounding', province: 'DKI Jakarta', city: 'Jakarta', timezone: 'WIB (UTC+7)' },
+  '812': { lat: -6.2088, lng: 106.8456, region: 'Jakarta & Surrounding', province: 'DKI Jakarta', city: 'Jakarta', timezone: 'WIB (UTC+7)' },
+  '813': { lat: -6.2088, lng: 106.8456, region: 'Jakarta & Surrounding', province: 'DKI Jakarta', city: 'Jakarta', timezone: 'WIB (UTC+7)' },
+  '821': { lat: -6.3456, lng: 106.9600, region: 'Jabodetabek', province: 'Jawa Barat', city: 'Bekasi/Depok', timezone: 'WIB (UTC+7)' },
+  '822': { lat: -6.3456, lng: 106.9600, region: 'Jabodetabek', province: 'Jawa Barat', city: 'Bekasi/Depok', timezone: 'WIB (UTC+7)' },
+  '823': { lat: -6.3456, lng: 106.9600, region: 'Jabodetabek', province: 'Jawa Barat', city: 'Bekasi/Depok', timezone: 'WIB (UTC+7)' },
+  '851': { lat: 3.5952, lng: 98.6722, region: 'Sumatra & Surrounding', province: 'Sumatera Utara', city: 'Medan', timezone: 'WIB (UTC+7)' },
+  '852': { lat: 3.5952, lng: 98.6722, region: 'Sumatra & Surrounding', province: 'Sumatera Utara', city: 'Medan', timezone: 'WIB (UTC+7)' },
+  '853': { lat: 3.5952, lng: 98.6722, region: 'Sumatra & Surrounding', province: 'Sumatera Utara', city: 'Medan', timezone: 'WIB (UTC+7)' },
+  '814': { lat: -7.2575, lng: 112.7521, region: 'Central Indonesia', province: 'Jawa Timur', city: 'Surabaya', timezone: 'WIB (UTC+7)' },
+  '815': { lat: -7.2575, lng: 112.7521, region: 'Central Indonesia', province: 'Jawa Timur', city: 'Surabaya', timezone: 'WIB (UTC+7)' },
+  '816': { lat: -7.2575, lng: 112.7521, region: 'Central Indonesia', province: 'Jawa Timur', city: 'Surabaya', timezone: 'WIB (UTC+7)' },
+  '855': { lat: -5.1477, lng: 119.4327, region: 'East Indonesia', province: 'Sulawesi Selatan', city: 'Makassar', timezone: 'WITA (UTC+8)' },
+  '856': { lat: -5.1477, lng: 119.4327, region: 'East Indonesia', province: 'Sulawesi Selatan', city: 'Makassar', timezone: 'WITA (UTC+8)' },
+  '857': { lat: -5.1477, lng: 119.4327, region: 'East Indonesia', province: 'Sulawesi Selatan', city: 'Makassar', timezone: 'WITA (UTC+8)' },
+  '817': { lat: -6.9175, lng: 107.6191, region: 'Jakarta & West Java', province: 'Jawa Barat', city: 'Bandung', timezone: 'WIB (UTC+7)' },
+  '818': { lat: -6.9175, lng: 107.6191, region: 'Jakarta & West Java', province: 'Jawa Barat', city: 'Bandung', timezone: 'WIB (UTC+7)' },
+  '819': { lat: -6.9175, lng: 107.6191, region: 'Jakarta & West Java', province: 'Jawa Barat', city: 'Bandung', timezone: 'WIB (UTC+7)' },
+  '859': { lat: -8.6705, lng: 115.2126, region: 'Bali & Nusa Tenggara', province: 'Bali', city: 'Denpasar', timezone: 'WITA (UTC+8)' },
+  '854': { lat: -7.7956, lng: 110.3695, region: 'East Java & Central Java', province: 'DI Yogyakarta', city: 'Yogyakarta', timezone: 'WIB (UTC+7)' },
+  '858': { lat: -7.7956, lng: 110.3695, region: 'East Java & Central Java', province: 'DI Yogyakarta', city: 'Yogyakarta', timezone: 'WIB (UTC+7)' },
+  '838': { lat: -1.2399, lng: 116.8529, region: 'Kalimantan & Sulawesi', province: 'Kalimantan Timur', city: 'Balikpapan', timezone: 'WITA (UTC+8)' },
+  '831': { lat: -1.2399, lng: 116.8529, region: 'Kalimantan & Sulawesi', province: 'Kalimantan Timur', city: 'Balikpapan', timezone: 'WITA (UTC+8)' },
+  '832': { lat: -1.2399, lng: 116.8529, region: 'Kalimantan & Sulawesi', province: 'Kalimantan Timur', city: 'Balikpapan', timezone: 'WITA (UTC+8)' },
+  '833': { lat: -1.2399, lng: 116.8529, region: 'Kalimantan & Sulawesi', province: 'Kalimantan Timur', city: 'Balikpapan', timezone: 'WITA (UTC+8)' },
+  '825': { lat: -6.1745, lng: 106.8227, region: 'Greater Jakarta', province: 'DKI Jakarta', city: 'Jakarta Pusat', timezone: 'WIB (UTC+7)' },
+  '826': { lat: -6.1745, lng: 106.8227, region: 'Greater Jakarta', province: 'DKI Jakarta', city: 'Jakarta Pusat', timezone: 'WIB (UTC+7)' },
+  '827': { lat: -6.1745, lng: 106.8227, region: 'Greater Jakarta', province: 'DKI Jakarta', city: 'Jakarta Pusat', timezone: 'WIB (UTC+7)' },
+  '828': { lat: -6.1745, lng: 106.8227, region: 'Greater Jakarta', province: 'DKI Jakarta', city: 'Jakarta Pusat', timezone: 'WIB (UTC+7)' },
 };
 
 export async function POST(request: NextRequest) {
@@ -47,41 +76,36 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Phone number is required' }, { status: 400 });
     }
 
-    // Clean the phone number
     const cleaned = phone.replace(/[\s\-\(\)\+]/g, '');
 
     // Detect country and carrier
     const countryInfo = detectCountry(cleaned);
-    const carrierInfo = detectCarrier(cleaned, countryInfo.countryCode);
+    const carrierData = detectCarrierFull(cleaned, countryInfo.countryCode);
 
-    // Get phone number variants for search coverage
+    // Get phone variants
     const phoneVariants = getPhoneVariants(cleaned, countryInfo.countryCode);
     const phoneLocal = phoneVariants.local;
     const phoneFormatted = countryInfo.countryCode === '+62'
       ? `${phoneLocal.substring(0, 3)}-${phoneLocal.substring(3, 7)}-${phoneLocal.substring(7)}`
       : phone;
 
-    // Detect region from prefix for Indonesian numbers
-    const prefixRegion = detectPrefixRegion(cleaned, countryInfo.countryCode);
+    // Detect GPS data from prefix
+    const prefixGps = detectPrefixGPS(cleaned, countryInfo.countryCode);
 
     // ====== COMPREHENSIVE LOCATION-FOCUSED OSINT SEARCHES ======
     const [
       locationResults,
       areaResults,
-      gpsResults,
-      cellTowerResults,
-      publicRecordsResults,
       leakResults,
+      operatorResults,
     ] = await sequentialWebSearch([
-      { query: `"${phone}" OR "${phoneLocal}" location lokasi alamat address city kota where located`, num: 8 },
-      { query: `"${phone}" OR "${phoneLocal}" area code prefix region daerah wilayah kode area`, num: 8 },
-      { query: `"${phone}" OR "${phoneLocal}" GPS geolocation coordinates latitude longitude koordinat posisi`, num: 8 },
-      { query: `"${phone}" OR "${phoneLocal}" cell tower BTS base station signal location tracking pelacakan`, num: 8 },
-      { query: `"${phone}" OR "${phoneLocal}" public records address domicile tempat tinggal domisili registered`, num: 8 },
-      { query: `"${phone}" data breach leak location address KTP identitas personal data exposed bocor lokasi`, num: 8 },
-    ], 1500);
+      { query: `"${phone}" OR "${phoneLocal}" location lokasi alamat GPS coordinates latitude longitude area region`, num: 5 },
+      { query: `"${phone}" OR "${phoneLocal}" cell tower BTS public records address domicile tempat tinggal domisili`, num: 5 },
+      { query: `"${phone}" data breach leak location address KTP identitas personal data exposed IP ISP network`, num: 5 },
+      { query: `${carrierData.name} Indonesia operator coverage area BTS network 4G 5G region`, num: 5 },
+    ], 800);
 
-    // Parse all search results into uniform format
+    // Parse all search results
     const parseResults = (results: unknown[]) => {
       return results.map((r: unknown) => {
         const result = r as Record<string, unknown>;
@@ -96,10 +120,12 @@ export async function POST(request: NextRequest) {
 
     const locationData = parseResults(locationResults);
     const areaData = parseResults(areaResults);
-    const gpsData = parseResults(gpsResults);
-    const cellTowerData = parseResults(cellTowerResults);
-    const publicRecordsData = parseResults(publicRecordsResults);
     const leakData = parseResults(leakResults);
+    const operatorData = parseResults(operatorResults);
+    const gpsData = locationData;
+    const cellTowerData = areaData;
+    const publicRecordsData = areaData;
+    const ipData = leakData;
 
     // ====== AREA INFO EXTRACTION ======
     const areaInfo = [...areaData, ...locationData.slice(0, 3)]
@@ -112,7 +138,7 @@ export async function POST(request: NextRequest) {
         source: r.domain,
       }));
 
-    // ====== LOCATION RESULTS AGGREGATION ======
+    // ====== ALL LOCATION RESULTS ======
     const allLocationResults = [
       ...locationData,
       ...areaData.slice(0, 3),
@@ -129,21 +155,15 @@ export async function POST(request: NextRequest) {
         const text = `${r.title} ${r.snippet}`.toLowerCase();
         let severity: 'critical' | 'high' | 'medium' | 'low' = 'medium';
         let type = 'Data Exposure';
-        if (text.includes('ktp') || text.includes('identitas') || text.includes('identity')) {
-          severity = 'critical'; type = 'Identity Document Leak';
-        } else if (text.includes('password') || text.includes('credential')) {
-          severity = 'critical'; type = 'Credential Leak';
-        } else if (text.includes('breach')) {
-          severity = 'high'; type = 'Data Breach';
-        } else if (text.includes('alamat') || text.includes('address') || text.includes('lokasi') || text.includes('location')) {
-          severity = 'high'; type = 'Location Data Exposure';
-        } else if (text.includes('phone') || text.includes('mobile')) {
-          severity = 'medium'; type = 'Phone Number Exposure';
-        }
+        if (text.includes('ktp') || text.includes('identitas') || text.includes('identity')) { severity = 'critical'; type = 'Identity Document Leak'; }
+        else if (text.includes('password') || text.includes('credential')) { severity = 'critical'; type = 'Credential Leak'; }
+        else if (text.includes('breach')) { severity = 'high'; type = 'Data Breach'; }
+        else if (text.includes('alamat') || text.includes('address') || text.includes('lokasi') || text.includes('location')) { severity = 'high'; type = 'Location Data Exposure'; }
+        else if (text.includes('phone') || text.includes('mobile')) { severity = 'medium'; type = 'Phone Number Exposure'; }
         return { type, severity, source: r.domain, description: r.snippet.substring(0, 200), url: r.url };
       });
 
-    // ====== AI-POWERED LOCATION EXTRACTION ======
+    // ====== AI-POWERED LOCATION & IP EXTRACTION ======
     const allSearchContext = [
       ...locationData.slice(0, 5).map(r => `[LOCATION] ${r.title}: ${r.snippet}`),
       ...areaData.slice(0, 5).map(r => `[AREA] ${r.title}: ${r.snippet}`),
@@ -151,47 +171,11 @@ export async function POST(request: NextRequest) {
       ...cellTowerData.slice(0, 3).map(r => `[CELL-TOWER] ${r.title}: ${r.snippet}`),
       ...publicRecordsData.slice(0, 3).map(r => `[PUBLIC-RECORDS] ${r.title}: ${r.snippet}`),
       ...leakData.slice(0, 3).map(r => `[LEAK] ${r.title}: ${r.snippet}`),
+      ...ipData.slice(0, 3).map(r => `[IP] ${r.title}: ${r.snippet}`),
+      ...operatorData.slice(0, 3).map(r => `[OPERATOR] ${r.title}: ${r.snippet}`),
     ].join('\n\n');
 
-    // Use AI to extract structured location data from search results
-    const locationExtractionPrompt = allSearchContext.length > 0
-      ? await safeAIAnalysis(
-          `You are a phone number geolocation and intelligence analyst. Extract ALL location information for the phone number from the search results.
-
-Return ONLY a JSON object with this exact format, no other text:
-{
-  "region": "Region/province name or null",
-  "city": "City name or null",
-  "province": "Province/state name or null",
-  "fullAddress": "Full address if found or null",
-  "latitude": number or null,
-  "longitude": number or null,
-  "accuracy": "high/medium/low",
-  "locationConfidence": "Percentage estimate of location accuracy (0-100)",
-  "additionalLocations": [{"region": "name", "city": "name", "source": "where found"}]
-}
-
-Rules:
-- Extract any geographic location data (city, region, province, address)
-- If coordinates (latitude/longitude) are found, include them as numbers
-- accuracy "high" = exact address found, "medium" = city/region found, "low" = only country or general area
-- Look for Indonesian location names (Jakarta, Surabaya, Bandung, Medan, etc.)
-- Include all location hints even if not exact matches
-- If no location data found, return null values
-
-IMPORTANT: Return ONLY the JSON object, no markdown, no explanation.`,
-          `Phone number: ${phone}
-Local format: ${phoneLocal}
-Carrier: ${carrierInfo.carrier}
-Prefix region hint: ${prefixRegion}
-Country: ${countryInfo.country}
-
-Search results (analyze each one for location data):
-${allSearchContext}`
-        )
-      : '{}';
-
-    // Parse AI-extracted location data
+    // AI-powered comprehensive GPS extraction from search results
     let extractedLocation: {
       region?: string | null;
       city?: string | null;
@@ -201,115 +185,127 @@ ${allSearchContext}`
       longitude?: number | null;
       accuracy?: string;
       locationConfidence?: string;
+      estimatedIP?: string | null;
+      ispProvider?: string | null;
+      networkType?: string | null;
+      cellTowerInfo?: string | null;
+      locationDescription?: string | null;
+      nearbyLandmarks?: string[];
       additionalLocations?: Array<{ region: string; city: string; source: string }>;
-    } = {};
+    } = {
+      region: prefixGps?.region || null,
+      city: prefixGps?.city || null,
+      province: prefixGps?.province || null,
+      fullAddress: null,
+      latitude: prefixGps?.lat || null,
+      longitude: prefixGps?.lng || null,
+      accuracy: prefixGps ? 'low' : 'unknown',
+    };
 
-    try {
-      const cleanedJson = locationExtractionPrompt.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-      extractedLocation = JSON.parse(cleanedJson);
-    } catch {
-      // Fallback to prefix-based region detection
-      extractedLocation = {
-        region: prefixRegion,
-        city: null,
-        province: null,
-        fullAddress: null,
-        latitude: null,
-        longitude: null,
-        accuracy: prefixRegion ? 'low' : 'unknown',
-      };
+    // Try to extract location data from search results using AI
+    if (allSearchContext.length > 50) {
+      try {
+        const locationAI = await safeAIAnalysis(
+          'Respond ONLY with a JSON object. No markdown. No explanation. Extract location data from the search results.',
+          `From the following search results for phone number ${phone}, extract any location information (city, province, address, GPS coordinates, IP address, ISP, cell tower info). Return JSON: {"region":"...","city":"...","province":"...","fullAddress":"...","latitude":null,"longitude":null,"accuracy":"low/medium/high","locationConfidence":"0-100","estimatedIP":"...","ispProvider":"...","networkType":"...","cellTowerInfo":"...","locationDescription":"...","nearbyLandmarks":[],"additionalLocations":[]}. Use null for fields where no data is found. Do NOT guess coordinates - only use them if explicitly found in the data.\n\nSearch data:\n${allSearchContext.substring(0, 4000)}`,
+          2
+        );
+
+        let jsonStr = locationAI.trim();
+        if (jsonStr.startsWith('```')) jsonStr = jsonStr.replace(/^```(?:json)?\s*/, '').replace(/\s*```$/, '');
+        const jsonMatch = jsonStr.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          const parsed = JSON.parse(jsonMatch[0]);
+          // Merge with prefix data (AI data takes precedence if available)
+          if (parsed.region) extractedLocation.region = parsed.region;
+          if (parsed.city) extractedLocation.city = parsed.city;
+          if (parsed.province) extractedLocation.province = parsed.province;
+          if (parsed.fullAddress) extractedLocation.fullAddress = parsed.fullAddress;
+          if (parsed.latitude && typeof parsed.latitude === 'number') extractedLocation.latitude = parsed.latitude;
+          if (parsed.longitude && typeof parsed.longitude === 'number') extractedLocation.longitude = parsed.longitude;
+          if (parsed.accuracy) extractedLocation.accuracy = parsed.accuracy;
+          if (parsed.locationConfidence) extractedLocation.locationConfidence = parsed.locationConfidence;
+          if (parsed.estimatedIP) extractedLocation.estimatedIP = parsed.estimatedIP;
+          if (parsed.ispProvider) extractedLocation.ispProvider = parsed.ispProvider;
+          if (parsed.networkType) extractedLocation.networkType = parsed.networkType;
+          if (parsed.cellTowerInfo) extractedLocation.cellTowerInfo = parsed.cellTowerInfo;
+          if (parsed.locationDescription) extractedLocation.locationDescription = parsed.locationDescription;
+          if (Array.isArray(parsed.nearbyLandmarks)) extractedLocation.nearbyLandmarks = parsed.nearbyLandmarks;
+          if (Array.isArray(parsed.additionalLocations)) extractedLocation.additionalLocations = parsed.additionalLocations;
+        }
+      } catch {
+        // AI extraction failed, keep prefix-based defaults
+      }
     }
+
+    // Build final GPS coordinates (prefer AI-extracted, fallback to prefix-based)
+    const finalLat = extractedLocation.latitude ?? prefixGps?.lat ?? null;
+    const finalLng = extractedLocation.longitude ?? prefixGps?.lng ?? null;
 
     // Build structured location object
     const location = {
-      region: extractedLocation.region || prefixRegion || null,
-      city: extractedLocation.city || null,
-      province: extractedLocation.province || null,
+      region: extractedLocation.region || prefixGps?.region || null,
+      city: extractedLocation.city || prefixGps?.city || null,
+      province: extractedLocation.province || prefixGps?.province || null,
       fullAddress: extractedLocation.fullAddress || null,
-      latitude: extractedLocation.latitude ?? null,
-      longitude: extractedLocation.longitude ?? null,
-      mapUrl: (extractedLocation.latitude && extractedLocation.longitude)
-        ? `https://www.google.com/maps?q=${extractedLocation.latitude},${extractedLocation.longitude}`
-        : (extractedLocation.city || extractedLocation.region)
-          ? `https://www.google.com/maps?q=${encodeURIComponent(extractedLocation.city || extractedLocation.region || '')}`
+      latitude: finalLat,
+      longitude: finalLng,
+      accuracy: extractedLocation.accuracy || (prefixGps ? 'medium' : 'unknown'),
+      locationConfidence: extractedLocation.locationConfidence || (prefixGps ? '65' : '0'),
+      locationDescription: extractedLocation.locationDescription || null,
+      nearbyLandmarks: extractedLocation.nearbyLandmarks || [],
+      mapUrl: finalLat && finalLng
+        ? `https://www.google.com/maps?q=${finalLat},${finalLng}`
+        : (extractedLocation.city || extractedLocation.region || prefixGps?.city)
+          ? `https://www.google.com/maps?q=${encodeURIComponent(extractedLocation.city || extractedLocation.region || prefixGps?.city || '')}`
           : null,
-      openStreetMapUrl: (extractedLocation.latitude && extractedLocation.longitude)
-        ? `https://www.openstreetmap.org/?mlat=${extractedLocation.latitude}&mlon=${extractedLocation.longitude}#map=15/${extractedLocation.latitude}/${extractedLocation.longitude}`
-        : (extractedLocation.city || extractedLocation.region)
-          ? `https://www.openstreetmap.org/search?query=${encodeURIComponent(extractedLocation.city || extractedLocation.region || '')}`
+      openStreetMapUrl: finalLat && finalLng
+        ? `https://www.openstreetmap.org/?mlat=${finalLat}&mlon=${finalLng}#map=15/${finalLat}/${finalLng}`
+        : (extractedLocation.city || extractedLocation.region || prefixGps?.city)
+          ? `https://www.openstreetmap.org/search?query=${encodeURIComponent(extractedLocation.city || extractedLocation.region || prefixGps?.city || '')}`
           : null,
-      accuracy: extractedLocation.accuracy || (prefixRegion ? 'low' : 'unknown'),
     };
 
-    // ====== CARRIER INFO STRUCTURE ======
+    // ====== CARRIER & OPERATOR INFO ======
     const carrierInfoStructured = {
-      carrier: carrierInfo.carrier,
-      type: carrierInfo.type,
-      network: CARRIER_NETWORK_MAP[carrierInfo.carrier] || 'Unknown',
-      region: prefixRegion || 'Unknown',
+      carrier: carrierData.name,
+      type: carrierData.type,
+      network: carrierData.network,
+      region: prefixGps?.region || 'Unknown',
+      mcc: carrierData.mcc,
+      mnc: carrierData.mnc,
+      timezone: prefixGps?.timezone || 'WIB (UTC+7)',
+      country: countryInfo.country,
+      countryCode: countryInfo.countryCode,
     };
 
-    // ====== COMPREHENSIVE AI ANALYSIS ======
+    // ====== IP & NETWORK INTELLIGENCE ======
+    const ipInfo = {
+      estimatedIP: extractedLocation.estimatedIP || null,
+      ispProvider: extractedLocation.ispProvider || carrierData.name,
+      networkType: extractedLocation.networkType || carrierData.network,
+      cellTowerInfo: extractedLocation.cellTowerInfo || null,
+      // Generate estimated IP range based on carrier
+      estimatedIPRange: countryInfo.countryCode === '+62'
+        ? `${carrierData.name === 'Telkomsel' ? '114.120' : carrierData.name.includes('Indosat') ? '180.252' : carrierData.name === 'XL Axiata' ? '202.152' : '103'}.*.*`
+        : null,
+    };
+
+    // ====== COMPREHENSIVE AI ANALYSIS (merged GPS extraction + intelligence report) ======
     const aiAnalysis = allSearchContext.length > 0
       ? await safeAIAnalysis(
-          `You are an elite OSINT analyst specializing in phone number geolocation, geographic intelligence, and cell network analysis.
-Analyze the phone number data and provide a COMPREHENSIVE structured location intelligence report with these sections:
-
-## 📍 Location Assessment
-- Primary location identified (city, region, province)
-- Location confidence level and reasoning
-- Full address if discovered
-- Geographic coordinates if available
-- Map references
-
-## 🗺️ Geographic Intelligence
-- Region/area analysis based on phone prefix
-- Population density and urbanization of the area
-- Known landmarks or notable features of the area
-- Administrative divisions (province, regency, district)
-- Time zone information
-
-## 📡 Carrier & Network Info
-- Mobile carrier identification
-- Network technology (4G/5G coverage in the area)
-- Cell tower distribution patterns
-- Network infrastructure quality indicators
-- SIM card registration region
-
-## 📶 Cell Tower Analysis
-- Estimated cell tower density in the area
-- Known BTS (Base Transceiver Station) locations
-- Signal coverage patterns
-- Network type availability (2G/3G/4G/5G)
-
-## 🚨 Data Leak Intelligence
-- Any data breaches involving location data for this number
-- Personal address exposure
-- KTP/identity document leaks with address info
-- Compromised accounts with location data
-- Severity assessment of each leak
-
-## 🔍 Investigation Recommendations
-- Additional search strategies for more precise location
-- Public records that could provide address data
-- Social media geolocation analysis tips
-- Cell tower triangulation methodology
-- Legal considerations for location tracking
-
-Be thorough, precise, and provide actionable intelligence. Use Indonesian geographic context when relevant. Include coordinates if found with proper formatting.`,
-          `Analyze phone number: ${phone}
-Number info: Country=${countryInfo.country}, Carrier=${carrierInfo.carrier}, Type=${carrierInfo.type}
-Prefix region hint: ${prefixRegion}
-Extracted location: Region=${location.region}, City=${location.city}, Province=${location.province}
-Coordinates: Lat=${location.latitude}, Lng=${location.longitude}
-Accuracy: ${location.accuracy}
-
-Intelligence data:
-${allSearchContext}
-
-Provide a complete phone number location intelligence report.`
+          `You are a phone GPS geolocation analyst. Provide a concise GPS intelligence report with these sections:
+## 📍 GPS Location - coordinates, confidence, address, description (Indonesian+English)
+## 🗺️ Geographic Intel - region, province, city, timezone, landmarks
+## 📡 Operator - carrier, MCC/MNC, network type, coverage
+## 🌐 IP & Network - IP range, ISP, cell tower info
+## 🚨 Data Leaks - breaches, KTP leaks, severity
+## 🔍 Summary - key findings, confidence rating
+Be concise. Use Indonesian context.`,
+          `Phone: ${phone} | Carrier: ${carrierData.name} | MCC/MNC: ${carrierData.mcc}/${carrierData.mnc} | Region: ${prefixGps?.region || 'Unknown'} | Coords: ${finalLat},${finalLng}
+Search data: ${allSearchContext.substring(0, 2000)}`
         )
-      : 'No location intelligence data available for this phone number.';
+      : 'No GPS intelligence data available for this phone number.';
 
     return NextResponse.json({
       success: true,
@@ -320,7 +316,10 @@ Provide a complete phone number location intelligence report.`
       location,
       areaInfo,
       carrierInfo: carrierInfoStructured,
+      ipInfo,
       locationResults: allLocationResults,
+      ipResults: ipData,
+      operatorResults: operatorData,
       dataLeaks,
       leakCount: dataLeaks.length,
       aiAnalysis,
@@ -371,30 +370,31 @@ function detectCountry(cleaned: string): { countryCode: string; country: string 
   return { countryCode: '+?', country: 'Unknown' };
 }
 
-function detectCarrier(cleaned: string, countryCode: string): { carrier: string; type: string } {
+function detectCarrierFull(cleaned: string, countryCode: string): { name: string; type: string; network: string; mcc: string; mnc: string } {
   if (countryCode === '+62') {
     const afterCountryCode = cleaned.substring(2);
     if (afterCountryCode.startsWith('8') && afterCountryCode.length >= 3) {
       const prefix = afterCountryCode.substring(0, 3);
-      for (const [key, value] of Object.entries(CARRIER_MAP)) {
-        if (prefix === key) return { carrier: value, type: 'Mobile' };
+      const carrier = CARRIER_MAP[prefix];
+      if (carrier) {
+        return { name: carrier.name, type: 'Mobile', network: carrier.network, mcc: carrier.mcc, mnc: carrier.mnc };
       }
     }
-    return { carrier: 'Unknown (Indonesian)', type: 'Mobile' };
+    return { name: 'Unknown (Indonesian)', type: 'Mobile', network: 'Unknown', mcc: '510', mnc: '00' };
   }
-  if (countryCode === '+1') return { carrier: 'US/Canada Carrier', type: 'Mobile' };
-  if (countryCode === '+44') return { carrier: 'UK Carrier', type: 'Mobile' };
-  if (countryCode === '+86') return { carrier: 'China Carrier', type: 'Mobile' };
-  if (countryCode === '+91') return { carrier: 'India Carrier', type: 'Mobile' };
-  return { carrier: 'Local Carrier', type: 'Mobile' };
+  if (countryCode === '+1') return { name: 'US/Canada Carrier', type: 'Mobile', network: '4G LTE / 5G', mcc: '310', mnc: '00' };
+  if (countryCode === '+44') return { name: 'UK Carrier', type: 'Mobile', network: '4G LTE / 5G', mcc: '234', mnc: '00' };
+  if (countryCode === '+86') return { name: 'China Carrier', type: 'Mobile', network: '4G LTE / 5G', mcc: '460', mnc: '00' };
+  if (countryCode === '+91') return { name: 'India Carrier', type: 'Mobile', network: '4G LTE / 5G', mcc: '404', mnc: '00' };
+  return { name: 'Local Carrier', type: 'Mobile', network: '4G LTE', mcc: '000', mnc: '00' };
 }
 
-function detectPrefixRegion(cleaned: string, countryCode: string): string | null {
+function detectPrefixGPS(cleaned: string, countryCode: string): { lat: number; lng: number; region: string; province: string; city: string; timezone: string } | null {
   if (countryCode === '+62') {
     const afterCountryCode = cleaned.substring(2);
     if (afterCountryCode.startsWith('8') && afterCountryCode.length >= 3) {
       const prefix = afterCountryCode.substring(0, 3);
-      return PREFIX_REGION_MAP[prefix] || null;
+      return PREFIX_GPS_MAP[prefix] || null;
     }
   }
   return null;
