@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { verifyAdminKey } from '@/lib/admin-auth';
 import crypto from 'crypto';
 
 function generateApiKey(isAdmin: boolean = false): string {
@@ -14,13 +15,9 @@ function generateApiKey(isAdmin: boolean = false): string {
 export async function GET(request: NextRequest) {
   try {
     const authHeader = request.headers.get('x-admin-key');
-    if (!authHeader || !authHeader.startsWith('recon-admin-')) {
+    const { valid } = await verifyAdminKey(authHeader || '');
+    if (!valid) {
       return NextResponse.json({ error: 'Admin access required' }, { status: 403 });
-    }
-
-    const adminKey = await db.apiKey.findUnique({ where: { key: authHeader } });
-    if (!adminKey || !adminKey.isActive) {
-      return NextResponse.json({ error: 'Invalid admin key' }, { status: 403 });
     }
 
     const keys = await db.apiKey.findMany({
@@ -39,13 +36,9 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const authHeader = request.headers.get('x-admin-key');
-    if (!authHeader || !authHeader.startsWith('recon-admin-')) {
+    const { valid } = await verifyAdminKey(authHeader || '');
+    if (!valid) {
       return NextResponse.json({ error: 'Admin access required' }, { status: 403 });
-    }
-
-    const adminKey = await db.apiKey.findUnique({ where: { key: authHeader } });
-    if (!adminKey || !adminKey.isActive) {
-      return NextResponse.json({ error: 'Invalid admin key' }, { status: 403 });
     }
 
     const { userId, plan, label, isAdmin } = await request.json();
@@ -105,13 +98,9 @@ export async function POST(request: NextRequest) {
 export async function PATCH(request: NextRequest) {
   try {
     const authHeader = request.headers.get('x-admin-key');
-    if (!authHeader || !authHeader.startsWith('recon-admin-')) {
+    const { valid } = await verifyAdminKey(authHeader || '');
+    if (!valid) {
       return NextResponse.json({ error: 'Admin access required' }, { status: 403 });
-    }
-
-    const adminKey = await db.apiKey.findUnique({ where: { key: authHeader } });
-    if (!adminKey || !adminKey.isActive) {
-      return NextResponse.json({ error: 'Invalid admin key' }, { status: 403 });
     }
 
     const { keyId, isActive } = await request.json();
@@ -135,13 +124,9 @@ export async function PATCH(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
   try {
     const authHeader = request.headers.get('x-admin-key');
-    if (!authHeader || !authHeader.startsWith('recon-admin-')) {
+    const { valid } = await verifyAdminKey(authHeader || '');
+    if (!valid) {
       return NextResponse.json({ error: 'Admin access required' }, { status: 403 });
-    }
-
-    const adminKey = await db.apiKey.findUnique({ where: { key: authHeader } });
-    if (!adminKey || !adminKey.isActive) {
-      return NextResponse.json({ error: 'Invalid admin key' }, { status: 403 });
     }
 
     const { keyId } = await request.json();

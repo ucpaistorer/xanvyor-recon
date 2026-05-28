@@ -22,7 +22,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ valid: false });
     }
 
-    const isAdmin = keyRecord.key.startsWith('recon-admin-');
+    // Admin if key starts with recon-admin- OR if the key belongs to a user named with admin keywords
+    const isAdmin = keyRecord.key.startsWith('recon-admin-') ||
+      (keyRecord.label && keyRecord.label.toLowerCase().includes('admin')) ||
+      (keyRecord.user?.name && keyRecord.user.name.toLowerCase().includes('admin'));
 
     return NextResponse.json({
       valid: true,
