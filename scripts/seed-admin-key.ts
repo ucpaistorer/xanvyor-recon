@@ -2,7 +2,7 @@ import { db } from '../src/lib/db';
 
 async function main() {
   // Create admin user with the provided API key
-  const apiKey = 'QCg6KXpYqKomtQXKGa0pngYzM9u5QpZvwqZjMupP3d3a869e';
+  const apiKey = '8vv2EzXBG7xG8qt0trde4hnQefDvoTNXomjVgB32b4d76b0a';
   
   // Check if key already exists
   const existing = await db.apiKey.findUnique({ where: { key: `recon-admin-${apiKey}` } });
