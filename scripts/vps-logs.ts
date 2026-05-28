@@ -1,35 +1,58 @@
 import { Client } from 'ssh2';
-const HOST = '76.13.198.125', USER = 'root', PASS = '753951Ucup##';
-function ssh(cmd: string, timeout = 30000): Promise<string> {
+
+const VPS_HOST = '76.13.198.125';
+const VPS_USER = 'root';
+const VPS_PASS = '753951Ucup##';
+
+const conn = new Client();
+
+function exec(cmd: string, timeout: number = 30000): Promise<string> {
   return new Promise((resolve, reject) => {
-    const conn = new Client();
-    const timer = setTimeout(() => { conn.end(); reject(new Error('Timeout')); }, timeout);
-    conn.on('ready', () => {
-      conn.exec(cmd, (err, stream) => {
-        if (err) { clearTimeout(timer); conn.end(); reject(err); return; }
-        let out = '';
-        stream.on('data', (d: Buffer) => { out += d.toString(); });
-        stream.stderr?.on('data', (d: Buffer) => { out += d.toString(); });
-        stream.on('close', () => { clearTimeout(timer); conn.end(); resolve(out); });
-      });
+    conn.exec(cmd, { timeout }, (err, stream) => {
+      if (err) return reject(err);
+      let stdout = '';
+      let stderr = '';
+      stream.on('data', (data: Buffer) => { stdout += data.toString(); });
+      stream.stderr.on('data', (data: Buffer) => { stderr += data.toString(); });
+      stream.on('close', () => { resolve(stdout + (stderr ? '\n' + stderr : '')); });
     });
-    conn.on('error', reject);
-    conn.connect({ host: HOST, port: 22, username: USER, password: PASS, readyTimeout: 15000 });
   });
 }
 
 async function main() {
-  console.log('=== Journal logs ===');
-  console.log(await ssh('journalctl -u xanvyor-recon --no-pager -n 30 2>&1'));
-  
-  console.log('\n=== Port check ===');
-  console.log(await ssh('ss -tlnp | grep 3002 || echo "PORT_FREE"'));
-  
-  console.log('\n=== Try running manually ===');
-  console.log(await ssh('cd /home/xanvyor-recon/.next/standalone && PORT=3002 DATABASE_URL=file:/home/xanvyor-recon/.next/standalone/db/custom.db NODE_ENV=production node server.js 2>&1 & sleep 5 && curl -s -o /dev/null -w "%{http_code}" http://localhost:3002 2>/dev/null && kill %1 2>/dev/null', 30000));
-  
-  console.log('\n=== Try next start instead ===');
-  console.log(await ssh('cd /home/xanvyor-recon && PORT=3002 DATABASE_URL=file:/home/xanvyor-recon/db/custom.db NODE_ENV=production node_modules/.bin/next start -p 3002 2>&1 & sleep 5 && curl -s -o /dev/null -w "%{http_code}" http://localhost:3002 2>/dev/null && kill %1 2>/dev/null', 30000));
+  await new Promise<void>((resolve, reject) => {
+    conn.on('ready', () => { console.log('[SSH] Connected!'); resolve(); });
+    conn.on('error', reject);
+    conn.connect({
+      host: VPS_HOST, port: 22, username: VPS_USER, password: VPS_PASS,
+      readyTimeout: 30000,
+      algorithms: {
+        kex: ['diffie-hellman-group14-sha256', 'diffie-hellman-group14-sha1', 'ecdh-sha2-nistp256', 'ecdh-sha2-nistp384', 'ecdh-sha2-nistp521', 'diffie-hellman-group-exchange-sha256'],
+        hostKey: ['ssh-rsa', 'ecdsa-sha2-nistp256', 'ssh-ed25519', 'rsa-sha2-256', 'rsa-sha2-512'],
+      }
+    });
+  });
+
+  try {
+    // Check recent app logs
+    console.log('\n[1] App service logs (recent):');
+    console.log(await exec('journalctl -u xanvyor-recon --no-pager -n 30 2>&1'));
+
+    // Test web search locally on VPS
+    console.log('\n[2] Testing web search locally...');
+    const searchResult = await exec('curl -s --max-time 60 -X POST http://localhost:3002/api/osint/web-search -H "Content-Type: application/json" -d \'{"query":"test"}\' 2>&1 | head -300', 90000);
+    console.log(searchResult);
+
+    // Test with a simpler query
+    console.log('\n[3] Testing username search...');
+    const userResult = await exec('curl -s --max-time 60 -X POST http://localhost:3002/api/osint/username -H "Content-Type: application/json" -d \'{"username":"test"}\' 2>&1 | head -300', 90000);
+    console.log(userResult);
+
+  } catch (error) {
+    console.error('[ERROR]', error);
+  } finally {
+    conn.end();
+  }
 }
 
 main().catch(console.error);
