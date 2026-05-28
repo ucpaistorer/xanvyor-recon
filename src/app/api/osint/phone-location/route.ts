@@ -334,19 +334,20 @@ Search data: ${allSearchContext.substring(0, 2000)}`
 // ====== HELPER FUNCTIONS ======
 
 function getPhoneVariants(cleaned: string, countryCode: string): { local: string; international: string } {
-  if (countryCode === '+62' && cleaned.startsWith('62')) {
-    return {
-      local: '0' + cleaned.substring(2),
-      international: '+' + cleaned,
-    };
+  if (countryCode === '+62') {
+    if (cleaned.startsWith('08')) {
+      return { local: cleaned, international: '+62' + cleaned.substring(1) };
+    }
+    if (cleaned.startsWith('62')) {
+      return { local: '0' + cleaned.substring(2), international: '+' + cleaned };
+    }
   }
-  return {
-    local: cleaned,
-    international: '+' + cleaned,
-  };
+  return { local: cleaned, international: '+' + cleaned };
 }
 
 function detectCountry(cleaned: string): { countryCode: string; country: string } {
+  // Handle Indonesian numbers starting with 08xx (local format) -> convert to 62
+  if (cleaned.startsWith('08') && cleaned.length >= 10 && cleaned.length <= 15) return { countryCode: '+62', country: 'Indonesia' };
   if (cleaned.startsWith('62')) return { countryCode: '+62', country: 'Indonesia' };
   if (cleaned.startsWith('1')) return { countryCode: '+1', country: 'United States/Canada' };
   if (cleaned.startsWith('44')) return { countryCode: '+44', country: 'United Kingdom' };
@@ -372,9 +373,10 @@ function detectCountry(cleaned: string): { countryCode: string; country: string 
 
 function detectCarrierFull(cleaned: string, countryCode: string): { name: string; type: string; network: string; mcc: string; mnc: string } {
   if (countryCode === '+62') {
-    const afterCountryCode = cleaned.substring(2);
-    if (afterCountryCode.startsWith('8') && afterCountryCode.length >= 3) {
-      const prefix = afterCountryCode.substring(0, 3);
+    // Handle both "08xx" and "62xx" formats
+    const afterPrefix = cleaned.startsWith('08') ? cleaned.substring(1) : cleaned.substring(2);
+    if (afterPrefix.startsWith('8') && afterPrefix.length >= 3) {
+      const prefix = afterPrefix.substring(0, 3);
       const carrier = CARRIER_MAP[prefix];
       if (carrier) {
         return { name: carrier.name, type: 'Mobile', network: carrier.network, mcc: carrier.mcc, mnc: carrier.mnc };
@@ -391,9 +393,9 @@ function detectCarrierFull(cleaned: string, countryCode: string): { name: string
 
 function detectPrefixGPS(cleaned: string, countryCode: string): { lat: number; lng: number; region: string; province: string; city: string; timezone: string } | null {
   if (countryCode === '+62') {
-    const afterCountryCode = cleaned.substring(2);
-    if (afterCountryCode.startsWith('8') && afterCountryCode.length >= 3) {
-      const prefix = afterCountryCode.substring(0, 3);
+    const afterPrefix = cleaned.startsWith('08') ? cleaned.substring(1) : cleaned.substring(2);
+    if (afterPrefix.startsWith('8') && afterPrefix.length >= 3) {
+      const prefix = afterPrefix.substring(0, 3);
       return PREFIX_GPS_MAP[prefix] || null;
     }
   }

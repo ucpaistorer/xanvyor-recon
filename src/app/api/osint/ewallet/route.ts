@@ -77,7 +77,16 @@ const CARRIER_PREFIXES: Record<string, { carrier: string; type: string }> = {
 
 function detectCarrier(phone: string): { carrier: string; country: string } {
   const cleaned = phone.replace(/[^0-9]/g, '');
-  // Indonesian numbers: +62 or 08xx
+  // Indonesian local format (08xx) - check first
+  if (cleaned.startsWith('08') && cleaned.length >= 10 && cleaned.length <= 15) {
+    for (const [prefix, info] of Object.entries(CARRIER_PREFIXES)) {
+      if (cleaned.startsWith(prefix)) {
+        return { carrier: info.carrier, country: 'Indonesia' };
+      }
+    }
+    return { carrier: 'Unknown (Indonesia)', country: 'Indonesia' };
+  }
+  // Indonesian international format (+62)
   if (cleaned.startsWith('62')) {
     const local = '0' + cleaned.slice(2);
     for (const [prefix, info] of Object.entries(CARRIER_PREFIXES)) {
@@ -86,13 +95,6 @@ function detectCarrier(phone: string): { carrier: string; country: string } {
       }
     }
     return { carrier: 'Unknown (Indonesia)', country: 'Indonesia' };
-  }
-  if (cleaned.startsWith('0')) {
-    for (const [prefix, info] of Object.entries(CARRIER_PREFIXES)) {
-      if (cleaned.startsWith(prefix)) {
-        return { carrier: info.carrier, country: 'Indonesia' };
-      }
-    }
   }
   return { carrier: 'Unknown', country: 'Unknown' };
 }

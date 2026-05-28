@@ -253,11 +253,13 @@ ${allContext.substring(0, 1500)}`
 
 // Get phone number variants for better search coverage
 function getPhoneVariants(cleaned: string, countryCode: string): { local: string; international: string } {
-  if (countryCode === '+62' && cleaned.startsWith('62')) {
-    return {
-      local: '0' + cleaned.substring(2), // 62 812 3456 7890 → 0812 3456 7890
-      international: '+' + cleaned,
-    };
+  if (countryCode === '+62') {
+    if (cleaned.startsWith('08')) {
+      return { local: cleaned, international: '+62' + cleaned.substring(1) };
+    }
+    if (cleaned.startsWith('62')) {
+      return { local: '0' + cleaned.substring(2), international: '+' + cleaned };
+    }
   }
   return {
     local: cleaned,
@@ -322,6 +324,7 @@ function extractNamesFromResults(
 }
 
 function detectCountry(cleaned: string): { countryCode: string; country: string; format: string } {
+  if (cleaned.startsWith('08') && cleaned.length >= 10 && cleaned.length <= 15) return { countryCode: '+62', country: 'Indonesia', format: 'Local (08xx)' };
   if (cleaned.startsWith('62')) return { countryCode: '+62', country: 'Indonesia', format: 'International (E.164)' };
   if (cleaned.startsWith('1')) return { countryCode: '+1', country: 'United States/Canada', format: 'International (E.164)' };
   if (cleaned.startsWith('44')) return { countryCode: '+44', country: 'United Kingdom', format: 'International (E.164)' };
@@ -347,9 +350,9 @@ function detectCountry(cleaned: string): { countryCode: string; country: string;
 
 function detectCarrier(cleaned: string, countryCode: string): { carrier: string; type: string } {
   if (countryCode === '+62') {
-    const afterCountryCode = cleaned.substring(2);
-    if (afterCountryCode.startsWith('8') && afterCountryCode.length >= 3) {
-      const prefix = afterCountryCode.substring(0, 3);
+    const afterPrefix = cleaned.startsWith('08') ? cleaned.substring(1) : cleaned.substring(2);
+    if (afterPrefix.startsWith('8') && afterPrefix.length >= 3) {
+      const prefix = afterPrefix.substring(0, 3);
       for (const [key, value] of Object.entries(CARRIER_MAP)) {
         if (prefix === key) return { carrier: value, type: 'Mobile' };
       }

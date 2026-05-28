@@ -242,6 +242,56 @@ function useOSINTSearch<T>() {
 // Dashboard Module
 // ============================================================
 function DashboardModule() {
+  const [gpsCoords, setGpsCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [gpsLoading, setGpsLoading] = useState(true);
+  const [locationName, setLocationName] = useState('');
+  const gpsInitialized = useRef(false);
+
+  useEffect(() => {
+    if (gpsInitialized.current) return;
+    gpsInitialized.current = true;
+    // Try browser GPS first
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          setGpsCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+          setGpsLoading(false);
+          // Reverse geocode
+          fetch(`https://nominatim.openstreetmap.org/reverse?lat=${pos.coords.latitude}&lon=${pos.coords.longitude}&format=json&accept-language=id,en`)
+            .then(r => r.json())
+            .then(data => { if (data.display_name) setLocationName(data.display_name); })
+            .catch(() => {});
+        },
+        () => {
+          // Fallback to IP geolocation
+          fetch('https://ipapi.co/json/')
+            .then(r => r.json())
+            .then(data => {
+              if (data.latitude && data.longitude) {
+                setGpsCoords({ lat: data.latitude, lng: data.longitude });
+                setLocationName(`${data.city || ''}, ${data.region || ''}, ${data.country_name || ''}`.replace(/^,\s*|,\s*$/g, ''));
+              }
+            })
+            .catch(() => {})
+            .finally(() => setGpsLoading(false));
+        },
+        { enableHighAccuracy: true, timeout: 10000 }
+      );
+    } else {
+      // No geolocation API, try IP
+      fetch('https://ipapi.co/json/')
+        .then(r => r.json())
+        .then(data => {
+          if (data.latitude && data.longitude) {
+            setGpsCoords({ lat: data.latitude, lng: data.longitude });
+            setLocationName(`${data.city || ''}, ${data.region || ''}, ${data.country_name || ''}`.replace(/^,\s*|,\s*$/g, ''));
+          }
+        })
+        .catch(() => {})
+        .finally(() => setGpsLoading(false));
+    }
+  }, []);
+
   const stats = [
     { label: 'OSINT Tools', value: '32', icon: <Layers className="w-5 h-5" />, color: 'text-emerald-400' },
     { label: 'AI Engines', value: '4', icon: <Cpu className="w-5 h-5" />, color: 'text-cyan-400' },
@@ -272,6 +322,7 @@ function DashboardModule() {
             <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30"><Activity className="w-3 h-3 mr-1" />Operational</Badge>
             <Badge className="bg-cyan-500/20 text-cyan-400 border-cyan-500/30"><Zap className="w-3 h-3 mr-1" />AI-Powered</Badge>
             <Badge className="bg-amber-500/20 text-amber-400 border-amber-500/30"><Lock className="w-3 h-3 mr-1" />Secure</Badge>
+            {gpsCoords && <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30"><MapPin className="w-3 h-3 mr-1" />GPS Active</Badge>}
           </div>
         </div>
       </div>
@@ -286,6 +337,34 @@ function DashboardModule() {
           </motion.div>
         ))}
       </div>
+
+      {/* GPS Location Auto-Detect */}
+      {gpsLoading && (
+        <Card className="border-emerald-500/20 bg-emerald-500/5">
+          <CardContent className="p-4 flex items-center gap-3">
+            <Loader2 className="w-5 h-5 animate-spin text-emerald-400" />
+            <div>
+              <p className="text-sm font-medium text-emerald-400">Mendeteksi lokasi GPS...</p>
+              <p className="text-xs text-muted-foreground">Mendapatkan koordinat lokasi Anda secara otomatis</p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+      {gpsCoords && !gpsLoading && (
+        <div className="space-y-3">
+          <Card className="border-emerald-500/20 bg-emerald-500/5">
+            <CardContent className="p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <MapPin className="w-5 h-5 text-emerald-400" />
+                <span className="text-sm font-medium text-emerald-400">Lokasi Terdeteksi</span>
+              </div>
+              {locationName && <p className="text-sm text-foreground mb-1">📍 {locationName}</p>}
+              <p className="text-xs text-muted-foreground">📍 {gpsCoords.lat.toFixed(6)}, {gpsCoords.lng.toFixed(6)}</p>
+            </CardContent>
+          </Card>
+          <MapEmbed lat={gpsCoords.lat} lng={gpsCoords.lng} label={locationName || 'Lokasi Anda'} />
+        </div>
+      )}
 
       <div>
         <h3 className="text-lg font-semibold mb-4 flex items-center gap-2"><Radar className="w-5 h-5 text-emerald-400" /> Intelligence Capabilities</h3>
@@ -1250,6 +1329,7 @@ interface WifiScanResult {
 }
 
 function WifiScanModule() {
+  const { loading, result, error, search } = useOSINTSearch<WifiScanResult>();
   const [location, setLocation] = useState('');
   const [connectedSSID, setConnectedSSID] = useState('');
   const [gpsCoords, setGpsCoords] = useState<{ lat: number; lng: number } | null>(null);
@@ -2944,7 +3024,7 @@ interface AdminUser {
   apiKeys: Array<{ id: string; key: string; plan: string; isActive: boolean; expiresAt: string | null; label: string | null; lastUsedAt: string | null; createdAt: string }>;
 }
 
-function AdminModule({ auth, onLogout }: { auth: AuthState; onLogout: () => void }) {
+function AdminModule({ auth, onLogout, onBackToDashboard }: { auth: AuthState; onLogout: () => void; onBackToDashboard: () => void }) {
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [newUserName, setNewUserName] = useState('');
@@ -3315,8 +3395,11 @@ function AdminModule({ auth, onLogout }: { auth: AuthState; onLogout: () => void
         </TabsContent>
       </Tabs>
 
-      {/* Back to Dashboard */}
-      <div className="flex justify-center">
+      {/* Back to Dashboard & Logout */}
+      <div className="flex justify-center gap-3">
+        <Button variant="outline" onClick={onBackToDashboard} className="border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10">
+          <ChevronLeft className="w-4 h-4 mr-2" />Back to Dashboard
+        </Button>
         <Button variant="outline" onClick={onLogout} className="border-red-500/30 text-red-400 hover:bg-red-500/10">
           <LogOut className="w-4 h-4 mr-2" />Logout
         </Button>
@@ -3414,6 +3497,7 @@ export default function OSINTApp() {
 
   const handleNavigate = (mod: ModuleType) => {
     setActiveModule(mod);
+    if (view === 'admin') setView('dashboard');
     setMobileSidebarOpen(false);
   };
 
@@ -3443,7 +3527,7 @@ export default function OSINTApp() {
   const activeMod = MODULES.find(m => m.id === activeModule);
 
   const renderModule = () => {
-    if (view === 'admin') return <AdminModule auth={auth} onLogout={handleLogout} />;
+    if (view === 'admin') return <AdminModule auth={auth} onLogout={handleLogout} onBackToDashboard={() => setView('dashboard')} />;
     switch (activeModule) {
       case 'dashboard': return <DashboardModule />;
       case 'username': return <UsernameModule />;

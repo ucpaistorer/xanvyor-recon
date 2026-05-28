@@ -102,6 +102,10 @@ const APP_REGISTRY = [
 // Helper: Detect country from cleaned phone number
 // ============================================================
 function detectCountry(cleaned: string): { countryCode: string; country: string } {
+  // Indonesian local format (08xx) - check first
+  if (cleaned.startsWith('08') && cleaned.length >= 10 && cleaned.length <= 15) {
+    return { countryCode: '+62', country: 'Indonesia' };
+  }
   // Sort by prefix length descending so longer prefixes match first (e.g. 880 before 8)
   const sorted = [...COUNTRY_MAP].sort((a, b) => b.prefix.length - a.prefix.length);
   for (const entry of sorted) {
@@ -117,7 +121,7 @@ function detectCountry(cleaned: string): { countryCode: string; country: string 
 // ============================================================
 function detectCarrier(cleaned: string, countryCode: string): { carrier: string; numberType: string } {
   if (countryCode === '+62') {
-    const afterCode = cleaned.substring(2);
+    const afterCode = cleaned.startsWith('08') ? cleaned.substring(1) : cleaned.substring(2);
     if (afterCode.startsWith('8') && afterCode.length >= 3) {
       const prefix = afterCode.substring(0, 3);
       for (const [key, value] of Object.entries(CARRIER_MAP)) {
@@ -145,6 +149,13 @@ function getPhoneVariants(cleaned: string, countryCode: string): { local: string
       local,
       international: '+' + cleaned,
       formatted: `${local.substring(0, 3)}-${local.substring(3, 7)}-${local.substring(7)}`,
+    };
+  }
+  if (countryCode === '+62' && cleaned.startsWith('08')) {
+    return {
+      local: cleaned,
+      international: '+62' + cleaned.substring(1),
+      formatted: `${cleaned.substring(0, 3)}-${cleaned.substring(3, 7)}-${cleaned.substring(7)}`,
     };
   }
   return {
