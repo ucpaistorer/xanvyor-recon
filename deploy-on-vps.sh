@@ -4,11 +4,13 @@ set -e
 # ================================================
 # XANVYOR RECON - VPS Deployment Script
 # Domain: xanvyorrecon.id
+# API Key: 8vv2EzXBG7xG8qt0trde4hnQefDvoTNXomjVgB32b4d76b0a
 # ================================================
 
 APP_DIR="/root/xanvyorrecon"
 APP_PORT=3000
 DOMAIN="xanvyorrecon.id"
+API_KEY="8vv2EzXBG7xG8qt0trde4hnQefDvoTNXomjVgB32b4d76b0a"
 
 echo "================================================"
 echo "  XANVYOR RECON - VPS Deployment"
@@ -64,30 +66,41 @@ bun run db:push
 
 # 8. Seed admin keys
 echo "[8/10] Seeding database..."
-node -e '
-const { PrismaClient } = require("@prisma/client");
-const crypto = require("crypto");
+node -e "
+const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 async function main() {
-  const keys = await prisma.apiKey.findMany({ include: { user: true } });
-  console.log("Existing keys:", keys.length);
-  let adminKey = await prisma.apiKey.findFirst({ where: { key: { startsWith: "recon-admin-" } } });
-  if (!adminKey) {
-    const admin = await prisma.user.create({ data: { name: "Admin Owner" } });
-    const key = "recon-admin-" + Date.now().toString(36) + "-" + crypto.randomBytes(32).toString("hex");
-    await prisma.apiKey.create({ data: { key, userId: admin.id, plan: "lifetime", isActive: true, label: "Admin Key" } });
-    console.log("Created admin key:", key.substring(0, 30) + "...");
+  // Create admin user
+  let admin = await prisma.user.findFirst({ where: { name: { contains: 'admin' } } });
+  if (!admin) {
+    admin = await prisma.user.create({ data: { name: 'Admin Owner', phone: '6287892614294' } });
+    console.log('Created admin user');
   }
-  let userKey = await prisma.apiKey.findUnique({ where: { key: "QCg6KXpYqKomtQXKGa0pngYzM9u5QpZvwqZjMupP3d3a869e" } });
-  if (!userKey) {
-    const user = await prisma.user.create({ data: { name: "XANVYOR Admin", phone: "6287892614294" } });
-    await prisma.apiKey.create({ data: { key: "QCg6KXpYqKomtQXKGa0pngYzM9u5QpZvwqZjMupP3d3a869e", userId: user.id, plan: "lifetime", isActive: true, label: "Admin Owner Key" } });
-    console.log("Created user API key");
-  } else { console.log("User key already exists"); }
-  await prisma.$disconnect();
+
+  // Create user API key
+  const apiKey = '${API_KEY}';
+  let existingKey = await prisma.apiKey.findUnique({ where: { key: apiKey } });
+  if (!existingKey) {
+    await prisma.apiKey.create({ data: { key: apiKey, userId: admin.id, plan: 'lifetime', isActive: true, label: 'admin-primary', expiresAt: null } });
+    console.log('Created user API key');
+  } else {
+    console.log('User API key already exists');
+  }
+
+  // Create recon-admin prefixed key
+  const adminApiKey = 'recon-admin-${API_KEY}';
+  let existingAdminKey = await prisma.apiKey.findUnique({ where: { key: adminApiKey } });
+  if (!existingAdminKey) {
+    await prisma.apiKey.create({ data: { key: adminApiKey, userId: admin.id, plan: 'lifetime', isActive: true, label: 'admin-super', expiresAt: null } });
+    console.log('Created admin API key');
+  } else {
+    console.log('Admin API key already exists');
+  }
+
+  await prisma.\$disconnect();
 }
 main().catch(console.error);
-'
+"
 
 # 9. Build
 echo "[9/10] Building project..."
@@ -174,8 +187,9 @@ echo "  XANVYOR RECON Deployed Successfully!"
 echo "================================================"
 echo ""
 echo "Website: https://$DOMAIN"
-echo "API Key: QCg6KXpYqKomtQXKGa0pngYzM9u5QpZvwqZjMupP3d3a869e"
-echo "Admin access: Login with API key above"
+echo "API Key: $API_KEY"
+echo "Admin key: recon-admin-$API_KEY"
+echo "Admin access: Login with either API key above"
 echo "WhatsApp: wa.me/6287892614294"
 echo ""
 echo "PM2 Status:"
