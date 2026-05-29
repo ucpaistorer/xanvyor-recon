@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { safeWebSearch, safeVisionAnalysis } from '@/lib/zai';
+import { safeWebSearch, safeVisionAnalysis, safeAIAnalysis } from '@/lib/zai';
 
 export async function POST(request: NextRequest) {
   try {
@@ -24,16 +24,23 @@ Provide a structured OSINT analysis report.`;
     const vlmResult = await safeVisionAnalysis(effectiveImageUrl, analysisPrompt);
     
     let analysis: string;
+    let vlmAvailable = vlmResult.success;
+    
     if (vlmResult.success) {
       analysis = vlmResult.content || 'No analysis generated.';
     } else {
-      analysis = vlmResult.error || 'Image analysis failed. The image URL may be inaccessible or the format may not be supported.';
+      // VLM failed - use AI text analysis as fallback
+      const fallbackAnalysis = await safeAIAnalysis(
+        'You are an OSINT image analysis expert. The user uploaded an image but the vision AI is unavailable. Provide a helpful analysis framework and suggest what they should look for in their image.',
+        `The user wants OSINT analysis of an image but vision AI is temporarily unavailable. The original analysis request was: "${analysisPrompt.substring(0, 300)}". Provide a structured OSINT analysis checklist and suggest tools they can use for manual analysis (like Google Reverse Image Search, TinEye, Yandex Images, etc.).`
+      );
+      analysis = `⚠️ **Vision AI Temporarily Unavailable** - Using text-based analysis framework\n\n${fallbackAnalysis}`;
     }
 
-    // Also do a web search for related intel
+    // Also do a web search for related intel and reverse search tools
     let relatedIntel: unknown[] = [];
     try {
-      const searchResults = await safeWebSearch('OSINT image analysis reverse search tools techniques', 5);
+      const searchResults = await safeWebSearch('OSINT image analysis reverse search tools techniques Google TinEye Yandex', 8);
       relatedIntel = (searchResults as Array<Record<string, string>>).map((r: Record<string, string>) => ({
         url: r.url,
         title: r.name,
@@ -48,6 +55,7 @@ Provide a structured OSINT analysis report.`;
       imageUrl: effectiveImageUrl,
       analysis,
       relatedIntel,
+      vlmAvailable,
     });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Unknown error';

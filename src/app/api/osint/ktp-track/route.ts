@@ -36,91 +36,133 @@ interface LocationData {
 // ============================================================
 export async function POST(request: NextRequest) {
   try {
-    const { imageUrl, imageBase64 } = await request.json();
+    const { imageUrl, imageBase64, nik: directNik } = await request.json();
+
+    // Support both image upload AND direct NIK input
     const effectiveImageUrl = imageBase64 || imageUrl;
-    if (!effectiveImageUrl) {
-      return NextResponse.json({ error: 'KTP image is required (upload a file or provide URL)' }, { status: 400 });
+    if (!effectiveImageUrl && !directNik) {
+      return NextResponse.json({ 
+        error: 'KTP image or NIK number is required. You can upload a KTP photo or enter a NIK number directly.',
+        hint: 'Use the "nik" field to enter a NIK number directly, or upload a KTP image.'
+      }, { status: 400 });
     }
 
+    let ktpData: KTPData;
+
     // ----------------------------------------------------------
-    // Step 1: Use VLM to extract KTP data
+    // Step 1: Extract KTP data (VLM or direct NIK)
     // ----------------------------------------------------------
-    const vlmPrompt = `You are an expert OCR and document analysis AI specializing in Indonesian KTP (Kartu Tanda Penduduk / Indonesian National Identity Card) extraction.
+    if (directNik) {
+      // Direct NIK input - decode NIK structure
+      const nik = directNik.replace(/\D/g, '');
+      if (nik.length !== 16) {
+        return NextResponse.json({ error: 'NIK must be exactly 16 digits' }, { status: 400 });
+      }
+      
+      // Decode NIK structure: PPCCDDSSMMMMNNNX
+      const provinceCode = nik.substring(0, 2);
+      const cityCode = nik.substring(2, 4);
+      const districtCode = nik.substring(4, 6);
+      const dobRaw = parseInt(nik.substring(6, 8));
+      const month = nik.substring(8, 10);
+      const year = nik.substring(10, 12);
+      const seq = nik.substring(12, 16);
+      
+      const isFemale = dobRaw > 40;
+      const dob = isFemale ? dobRaw - 40 : dobRaw;
+      const fullYear = parseInt(year) > 50 ? 1900 + parseInt(year) : 2000 + parseInt(year);
+      
+      ktpData = {
+        nik,
+        nama: '(Not available from NIK alone)',
+        tempatTglLahir: `DOB: ${dob.toString().padStart(2,'0')}-${month}-${fullYear}`,
+        jenisKelamin: isFemale ? 'PEREMPUAN' : 'LAKI-LAKI',
+        alamat: '',
+        rtRw: '',
+        kelDesa: '',
+        kecamatan: '',
+        agama: '',
+        statusPerkawinan: '',
+        pekerjaan: '',
+        kewarganegaraan: 'WNI',
+        provinsi: `Province code: ${provinceCode}`,
+        kabupatenKota: `City code: ${provinceCode}.${cityCode}`,
+        berlakuHingga: '',
+      };
+    } else {
+      // Image-based KTP extraction
+      const vlmPrompt = `You are an expert OCR and document analysis AI specializing in Indonesian KTP (Kartu Tanda Penduduk / Indonesian National Identity Card) extraction.
 
 Analyze this image carefully. If it is NOT a KTP (Indonesian ID card), respond with exactly: NOT_A_KTP
 
-If it IS a KTP, extract ALL fields and return them in the following JSON format. Be extremely precise with every character, especially the NIK number. Read each field carefully even if the text is partially obscured, rotated, or hard to read.
+If it IS a KTP, extract ALL fields and return them in the following JSON format. Be extremely precise with every character, especially the NIK number.
 
 Return ONLY a JSON object with these exact keys:
 {
   "nik": "16-digit NIK number (no spaces, no dashes)",
   "nama": "Full name as printed on the KTP",
-  "tempatTglLahir": "Place and date of birth (e.g., JAKARTA, 01-01-1990)",
+  "tempatTglLahir": "Place and date of birth",
   "jenisKelamin": "LAKI-LAKI or PEREMPUAN",
   "alamat": "Full street address as printed",
-  "rtRw": "RT/RW numbers (e.g., 001/002)",
+  "rtRw": "RT/RW numbers",
   "kelDesa": "Kelurahan/Desa name",
   "kecamatan": "Kecamatan name",
-  "agama": "Religion (ISLAM, KRISTEN, KATOLIK, HINDU, BUDDHA, KONGHUCU)",
-  "statusPerkawinan": "Marital status (BELUM KAWIN, KAWIN, CERAI HIDUP, CERAI MATI)",
-  "pekerjaan": "Occupation/job as printed",
+  "agama": "Religion",
+  "statusPerkawinan": "Marital status",
+  "pekerjaan": "Occupation/job",
   "kewarganegaraan": "WNI or WNA",
   "provinsi": "Province name",
   "kabupatenKota": "Kabupaten/Kota name",
-  "berlakuHingga": "Validity period (e.g., SEUMUR HIDUP)"
+  "berlakuHingga": "Validity period"
 }
 
-IMPORTANT RULES:
-- If a field is unreadable or not found, use empty string ""
-- The NIK is exactly 16 digits - extract it digit by digit if needed
-- Province and Kabupaten/Kota are usually at the top of the KTP
-- Do NOT guess or fabricate data. Only extract what you can actually see.
-- If the image is not a KTP at all, return exactly: NOT_A_KTP
-- Return ONLY the JSON, no other text or explanation`;
+IMPORTANT: If a field is unreadable, use empty string. Return ONLY the JSON.`;
 
-    const vlmResult = await safeVisionAnalysis(effectiveImageUrl, vlmPrompt);
-    if (!vlmResult.success) {
-      return NextResponse.json(
-        { error: vlmResult.error || 'VLM analysis failed. The image URL may be inaccessible.' },
-        { status: 500 }
-      );
-    }
-    const rawVlmResponse = vlmResult.content;
+      const vlmResult = await safeVisionAnalysis(effectiveImageUrl, vlmPrompt);
+      
+      if (vlmResult.success) {
+        // VLM succeeded - parse KTP data
+        const rawVlmResponse = vlmResult.content;
+        
+        if (rawVlmResponse.trim().toUpperCase().includes('NOT_A_KTP')) {
+          return NextResponse.json(
+            { error: 'The uploaded image does not appear to be a KTP (Indonesian ID Card). Please upload a valid KTP image.' },
+            { status: 400 }
+          );
+        }
 
-    // Check if image is not a KTP
-    if (rawVlmResponse.trim().toUpperCase().includes('NOT_A_KTP')) {
-      return NextResponse.json(
-        { error: 'The uploaded image does not appear to be a KTP (Indonesian ID Card). Please upload a valid KTP image.' },
-        { status: 400 }
-      );
-    }
+        try {
+          const jsonMatch = rawVlmResponse.match(/\{[\s\S]*\}/);
+          if (!jsonMatch) {
+            return NextResponse.json(
+              { error: 'Could not extract KTP data from the image. The image may be unclear or not a KTP.' },
+              { status: 400 }
+            );
+          }
+          ktpData = JSON.parse(jsonMatch[0]) as KTPData;
+        } catch {
+          return NextResponse.json(
+            { error: 'Failed to parse KTP data. The image may be unclear or not a valid KTP.' },
+            { status: 400 }
+          );
+        }
 
-    // Parse KTP data from VLM response
-    let ktpData: KTPData;
-    try {
-      // Try to extract JSON from the response (may contain markdown code blocks)
-      const jsonMatch = rawVlmResponse.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) {
-        return NextResponse.json(
-          { error: 'Could not extract KTP data from the image. The image may be unclear or not a KTP.' },
-          { status: 400 }
-        );
+        const hasAnyData = Object.values(ktpData).some(v => v && v.trim().length > 0);
+        if (!hasAnyData) {
+          return NextResponse.json(
+            { error: 'No KTP data could be extracted. The image may be too blurry.' },
+            { status: 400 }
+          );
+        }
+      } else {
+        // VLM failed - return helpful error with suggestion to use NIK directly
+        return NextResponse.json({
+          error: 'Image analysis is currently unavailable. The AI vision service is experiencing high demand.',
+          hint: 'You can enter the NIK number directly instead of uploading an image. The NIK number can be found on the front of the KTP card.',
+          vlmError: vlmResult.error,
+          canRetry: true,
+        }, { status: 503 });
       }
-      ktpData = JSON.parse(jsonMatch[0]) as KTPData;
-    } catch {
-      return NextResponse.json(
-        { error: 'Failed to parse KTP data from VLM response. The image may be unclear or not a valid KTP.' },
-        { status: 400 }
-      );
-    }
-
-    // Validate that we got at least some meaningful data
-    const hasAnyData = Object.values(ktpData).some(v => v && v.trim().length > 0);
-    if (!hasAnyData) {
-      return NextResponse.json(
-        { error: 'No KTP data could be extracted from the image. The image may be too blurry or not a KTP.' },
-        { status: 400 }
-      );
     }
 
     // ----------------------------------------------------------
@@ -146,7 +188,6 @@ IMPORTANT RULES:
       openStreetMapUrl: `https://www.openstreetmap.org/search?query=${encodeURIComponent(fullAddress)}`,
     };
 
-    // Try to geocode the address using Nominatim
     try {
       const geoUrl = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(fullAddress)}&format=json&limit=1&accept-language=id`;
       const geoRes = await fetch(geoUrl, {
@@ -172,7 +213,6 @@ IMPORTANT RULES:
     const dataLeaks: Array<{ type: string; severity: string; source: string; description: string; url: string }> = [];
 
     try {
-      // Search for NIK in data leaks
       if (ktpData.nik && ktpData.nik.length >= 10) {
         const nikLeakResults = await safeWebSearch(
           `"${ktpData.nik}" data leak breach KTP identitas personal`,
@@ -210,8 +250,7 @@ IMPORTANT RULES:
         }
       }
 
-      // Search for name + address (combines public records + social media)
-      if (ktpData.nama) {
+      if (ktpData.nama && ktpData.nama !== '(Not available from NIK alone)') {
         const nameAddrResults = await safeWebSearch(
           `"${ktpData.nama}" "${ktpData.kabupatenKota || ktpData.kecamatan || ''}" public records profile social media facebook instagram`,
           5
@@ -226,7 +265,6 @@ IMPORTANT RULES:
             type: 'Name + Address Search',
           });
 
-          // Check if this is also a leak
           const text = `${r.name ?? ''} ${r.snippet ?? ''}`.toLowerCase();
           if (['leak', 'breach', 'exposed', 'ktp', 'data bocor'].some(k => text.includes(k))) {
             dataLeaks.push({
@@ -240,11 +278,11 @@ IMPORTANT RULES:
         }
       }
     } catch {
-      // OSINT searches failed, continue with whatever data we have
+      // OSINT searches failed, continue
     }
 
     // ----------------------------------------------------------
-    // Step 4: Comprehensive AI Analysis
+    // Step 4: AI Analysis
     // ----------------------------------------------------------
     const leakSummary = dataLeaks.length > 0
       ? dataLeaks.map(l => `[${l.severity.toUpperCase()}] ${l.type}: ${l.description} (Source: ${l.source})`).join('\n')
