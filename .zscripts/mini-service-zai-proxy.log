@@ -1,19 +1,9 @@
 [zai-proxy] Installing dependencies...
 bun install v1.3.14 (0d9b296a)
 
-Checked 1 install across 2 packages (no changes) [2.00ms]
++ z-ai-web-dev-sdk@0.0.18
+
+1 package installed [8.00ms]
 [zai-proxy] Running bun run dev...
-$ bun --hot index.t🚀 ZAI Proxy Service running on port 3001
-
-15 |   }
-16 |   return zaiInstance;
-17 | }
-18 | 
-19 | const server = Bun.serve({
-                        ^
-error: Failed to start server. Is port 3001 in use?
- syscall: "listen",
-   errno: 0,
-    code: "EADDRINUSE"
-
-      at /home/z/my-project/mini-services/zai-proxy/index.ts:19:20
+$ bun --hot index.ts
+🚀 ZAI Proxy Service running on port 3001
