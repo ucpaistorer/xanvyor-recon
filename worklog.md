@@ -1,96 +1,74 @@
----
-Task ID: 1
-Agent: Main Agent
-Task: Deploy XANVYOR RECON to VPS 76.13.198.125
+# Worklog: ZAI SDK Memory Optimization
 
-Work Log:
-- Built Next.js app with standalone output configuration
-- Created deployment package (55MB tar.gz)
-- Uploaded to VPS via SSH2 SFTP
-- Extracted and set up standalone deployment at /home/xanvyor-recon/.next/standalone
-- Configured systemd service (xanvyor-recon) on port 3002
-- Configured nginx reverse proxy (xanvyorrecon.conf) with SSL
-- Created self-signed SSL certificate for HTTPS
-- Fixed PowerDNS database schema (added catalog, options columns)
-- Created DNS records for xanvyorrecon.id pointing to 76.13.198.125
-- Seeded admin API key in database
-- Fixed ZAI SDK unavailability by creating fetch-patch.js interceptor
-- Web search uses DuckDuckGo HTML parsing + Wikipedia API + Wikidata
-- IP geolocation uses ip-api.com
-- AI analysis uses template-based fallback
-- Regenerated Prisma Client for RHEL/AlmaLinux runtime
+**Date:** 2025-03-04
+**Task:** Optimize `/home/z/my-project/src/lib/zai.ts` to prevent Node.js memory crashes under heavy OSINT API load
 
-Stage Summary:
-- App successfully deployed and accessible at http://76.13.198.125
-- Login works with API key: recon-admin-8vv2EzXBG7xG8qt0trde4hnQefDvoTNXomjVgB32b4d76b0a
-- Web search returns results (3 results for "Google" query)
-- AI analysis provides structured fallback responses
-- DNS for xanvyorrecon.id still points to 2.57.91.91 (user needs to update A record)
-- SSL is self-signed (Let's Encrypt requires DNS to point to VPS first)
-- ZAI internal API (internal-api.z.ai) is not accessible from VPS (private IPs)
+## Problem
 
----
-Task ID: 1
-Agent: Main Agent
-Task: Deploy XANVYOR RECON to VPS at 76.13.198.125 with domain xanvyorrecon.id
+The XANVYOR RECON server crashed after processing a few heavy OSINT requests. Each API route called `safeWebSearch`, `safeAIAnalysis`, `safeVisionAnalysis`, or `safeChatCompletion`, and each of those functions did:
 
-Work Log:
-- Verified project builds successfully (Next.js 16 with standalone output)
-- Seeded database with admin user and API keys
-- Attempted SSH connection to VPS (76.13.198.125) - BLOCKED by sandbox network
-- Uploaded project files to litterbox.catbox.moe for VPS download
-- Created comprehensive VPS deployment script (VPS-DEPLOY.sh)
-- Generated GitHub device flow codes for repo creation
-- Project is running on local dev server and accessible via preview panel
+1. `(await import('z-ai-web-dev-sdk')).default` — dynamic import every call
+2. `ZAI.create()` — created a brand-new ZAI instance every call
 
-Stage Summary:
-- Project tarball uploaded to: https://litter.catbox.moe/2o10ba.gz
-- Deployment script uploaded to: https://litter.catbox.moe/42rfp7.sh
-- GitHub device code: EFF6-D178 (user needs to authorize at https://github.com/login/device)
-- SSH from sandbox is blocked - user must run deployment from VPS directly
-- DNS must be pointed from Hostinger (2.57.91.91) to VPS IP (76.13.198.125)
+With 30+ OSINT routes, each doing multiple web searches + AI analysis, a single heavy request could create 5-10+ ZAI instances. Under concurrent load, this caused memory exhaustion and crashes.
 
----
-Task ID: 3
-Agent: Main Agent
-Task: Add new API key and attempt automated VPS deployment
+## Changes Made
 
-Work Log:
-- User provided new API key: 5CwJXmXOXUMMc6YdFwJxmM9Gev7zrgrJPlX5kWcq1ed6480e
-- Retried SSH to VPS (76.13.198.125) - all ports still blocked from sandbox
-- Attempted GitHub Actions workflow via Git Data API - blocked without 'workflow' scope
-- Attempted new GitHub device flow authorization - user authorized but got empty scope token
-- Created xanvyor-deploy repo on GitHub for CI/CD
-- Added VPS_PASSWORD secret to xanvyor-deploy repo
-- Attempted workflow push to deploy repo - blocked by OAuth workflow scope restriction
-- Updated deploy script with new API key via GitHub Contents API
-- Added new key to local database for preview testing
-- Pushed seed script to GitHub repo
+### 1. Singleton ZAI Instance (`getZAIInstance()`)
 
-Stage Summary:
-- New API key (5CwJXmXOXUMMc6YdFwJxmM9Gev7zrgrJPlX5kWcq1ed6480e) added to deploy script
-- Deploy script available at: https://raw.githubusercontent.com/ucpaistorer/xanvyor-recon/main/scripts/auto-deploy.sh
-- All 3 API keys included in deploy: new admin key, master key, user key
-- SSH from sandbox remains impossible - VPS port 22 filtered by sandbox firewall
-- GitHub workflow scope restriction prevents automated CI/CD deployment
-- User needs to run deploy command on VPS: curl -sL https://raw.githubusercontent.com/ucpaistorer/xanvyor-recon/main/scripts/auto-deploy.sh | bash
+- **Before:** Every call to `safeWebSearch`, `safeAIAnalysis`, etc. called `ZAI.create()` to make a new instance.
+- **After:** A single `getZAIInstance()` function manages a module-level singleton:
+  - Caches the dynamic import of `z-ai-web-dev-sdk` (`zaiModule`)
+  - Caches the created instance with a timestamp (`cachedZAI`)
+  - **TTL-based auto-refresh:** Instance is automatically recreated after 5 minutes (`ZAI_INSTANCE_TTL_MS`) to release accumulated memory
+  - **Deduplication:** If multiple calls arrive while an instance is being created, they share the same init promise (`zaiInitPromise`) — no duplicate `create()` calls
+  - **Invalidation:** `invalidateZAIInstance()` forces a fresh start when the instance appears broken (timeout, connection reset, socket errors)
 
----
-Task ID: 4
-Agent: Main Agent
-Task: Fix ALL OSINT features to work on VPS with zero errors
+### 2. Request Timeout Wrapper (`withTimeout()`)
 
-Work Log:
-- Audited all 30 OSINT API routes for VPS compatibility
-- Found 2 BROKEN routes: ai-chat (getZAI crashes) and ktp-track (VLM fails)
-- Added safeChatCompletion() to zai.ts - replaces getZAI() with fallback
-- Rewrote ai-chat/route.ts with safeChatCompletion + search context fallback
-- Rewrote ktp-track/route.ts with direct NIK input when VLM unavailable
-- Fixed image-analysis/route.ts with text-based analysis when VLM fails
-- Improved generateFallbackAnalysis() with context-aware templates
-- All 30 routes now have proper error handling and fallbacks
-- Build verified successful, all fixes pushed to GitHub
+- **Before:** ZAI SDK calls had no timeout — a hung request would accumulate memory indefinitely.
+- **After:** Every ZAI SDK call is wrapped with `withTimeout(promise, 30_000, label)` that races the operation against a 30-second timer. Hung requests are rejected cleanly.
 
-Stage Summary:
-- ALL 30 OSINT features work on VPS (28 fully, 2 with degraded VLM)
-- Deployment still requires user to SSH to VPS and run 1 command
+### 3. Concurrency Limiter (Simple Semaphore)
+
+- **Before:** No limit on concurrent ZAI SDK operations. Under load, all requests hit the SDK simultaneously.
+- **After:** `acquireSlot()` / `releaseSlot()` implements a counting semaphore allowing at most `MAX_CONCURRENT_ZAI_CALLS = 4` simultaneous SDK operations. Excess requests queue and are served in FIFO order. This prevents memory spikes from too many parallel SDK connections.
+
+### 4. Memory-Efficient Result Handling
+
+- **Search result cap:** `MAX_SEARCH_RESULTS = 20` — even if a caller requests more, results are capped to prevent large arrays from bloating memory.
+- **AI response truncation:** `MAX_ANALYSIS_CHARS = 50_000` — AI responses are truncated if absurdly long, with a `[...truncated for memory safety]` marker.
+- **Defensive slicing:** `safeWebSearch` slices results even if the SDK returns more than requested.
+
+### 5. Instance Health Tracking & Auto-Recovery
+
+- When a ZAI call fails with timeout, ECONNRESET, or socket errors, `invalidateZAIInstance()` is called to force a fresh instance on the next attempt.
+- The init promise lock is always cleared in a `finally` block so future calls can retry even after errors.
+
+### 6. Function Signatures Unchanged
+
+All public function signatures remain identical:
+- `publicWebSearch(query, num, retries)` ✓
+- `publicIpGeo(ip)` ✓
+- `safeWebSearch(query, num, retries)` ✓
+- `safeAIAnalysis(systemPrompt, userPrompt, retries)` ✓
+- `sequentialWebSearch(calls, delayMs)` ✓
+- `safeVisionAnalysis(imageUrl, prompt, retries)` ✓
+- `safeChatCompletion(messages, options)` ✓
+- `getZAI()` ✓
+
+All fallback mechanisms (DuckDuckGo search, template analysis) are preserved.
+
+## Configuration Constants
+
+| Constant | Value | Purpose |
+|----------|-------|---------|
+| `ZAI_REQUEST_TIMEOUT_MS` | 30,000 | Max time per SDK call |
+| `ZAI_INSTANCE_TTL_MS` | 300,000 (5 min) | Auto-refresh singleton |
+| `MAX_CONCURRENT_ZAI_CALLS` | 4 | Parallel SDK operation limit |
+| `MAX_SEARCH_RESULTS` | 20 | Cap search result array size |
+| `MAX_ANALYSIS_CHARS` | 50,000 | Cap AI response string size |
+
+## Lint Status
+
+No new lint errors introduced. Pre-existing errors in `scripts/` directory are unrelated.

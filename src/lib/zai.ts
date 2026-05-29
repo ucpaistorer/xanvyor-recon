@@ -1,11 +1,139 @@
-import { NextRequest, NextResponse } from 'next/server';
-
 // ============================================================
 // ZAI SDK VPS-compatible adapter
 // Uses public APIs when internal ZAI API is not reachable
+//
+// OPTIMIZED: Singleton ZAI instance, timeout guards, concurrency
+// limiter, and memory-efficient result handling to prevent
+// server crashes under heavy OSINT workloads.
 // ============================================================
 
+// ---------------------------------------------------------------------------
+// Configuration constants
+// ---------------------------------------------------------------------------
+const ZAI_REQUEST_TIMEOUT_MS = 30_000; // Max time for any single ZAI SDK call
+const ZAI_INSTANCE_TTL_MS = 5 * 60_000; // Recreate instance every 5 min to free memory
+const MAX_CONCURRENT_ZAI_CALLS = 4; // Limit parallel SDK operations
+const MAX_SEARCH_RESULTS = 20; // Cap results to prevent memory bloat
+const MAX_ANALYSIS_CHARS = 50_000; // Truncate AI response if absurdly long
+
+// ---------------------------------------------------------------------------
+// Singleton ZAI instance management
+// ---------------------------------------------------------------------------
+type ZAIInstance = Awaited<ReturnType<import('z-ai-web-dev-sdk')['default']['create']>>;
+
+interface CachedInstance {
+  instance: ZAIInstance;
+  createdAt: number;
+}
+
+let cachedZAI: CachedInstance | null = null;
+let zaiInitPromise: Promise<ZAIInstance> | null = null;
+let zaiModule: typeof import('z-ai-web-dev-sdk')['default'] | null = null;
+
+/**
+ * Get or create the singleton ZAI instance.
+ * - Caches the dynamic import to avoid repeated module resolution.
+ * - Deduplicates concurrent `create()` calls (only one in-flight init).
+ * - Automatically recreates the instance after TTL to release accumulated memory.
+ * - On failure, invalidates the cache so the next call retries cleanly.
+ */
+async function getZAIInstance(): Promise<ZAIInstance> {
+  // Return cached instance if still fresh
+  if (cachedZAI && Date.now() - cachedZAI.createdAt < ZAI_INSTANCE_TTL_MS) {
+    return cachedZAI.instance;
+  }
+
+  // If an init is already in-flight, piggyback on it to avoid duplicate creates
+  if (zaiInitPromise) {
+    return zaiInitPromise;
+  }
+
+  zaiInitPromise = (async () => {
+    try {
+      // Cache the module reference (Node.js caches dynamic imports anyway,
+      // but we avoid the dynamic import() overhead on every call)
+      if (!zaiModule) {
+        const mod = await import('z-ai-web-dev-sdk');
+        zaiModule = mod.default;
+      }
+
+      const instance = await zaiModule.create();
+
+      cachedZAI = { instance, createdAt: Date.now() };
+      return instance;
+    } catch (error) {
+      // Invalidate everything so the next attempt starts fresh
+      cachedZAI = null;
+      zaiModule = null;
+      throw error;
+    } finally {
+      // Always clear the promise lock so future calls can retry
+      zaiInitPromise = null;
+    }
+  })();
+
+  return zaiInitPromise;
+}
+
+/**
+ * Force-reset the ZAI singleton. Called when the instance appears broken.
+ */
+function invalidateZAIInstance(): void {
+  cachedZAI = null;
+  zaiModule = null;
+  zaiInitPromise = null;
+}
+
+// ---------------------------------------------------------------------------
+// Concurrency limiter (simple semaphore)
+// ---------------------------------------------------------------------------
+let activeZAI = 0;
+const pendingQueue: Array<() => void> = [];
+
+async function acquireSlot(): Promise<void> {
+  if (activeZAI < MAX_CONCURRENT_ZAI_CALLS) {
+    activeZAI++;
+    return;
+  }
+  return new Promise<void>((resolve) => {
+    pendingQueue.push(resolve);
+  });
+}
+
+function releaseSlot(): void {
+  activeZAI--;
+  const next = pendingQueue.shift();
+  if (next) {
+    activeZAI++;
+    next();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Timeout wrapper – prevents hung SDK calls from leaking memory
+// ---------------------------------------------------------------------------
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        reject(new Error(`[zai] Timeout after ${ms}ms: ${label}`));
+      }, ms);
+    }),
+  ]).finally(() => clearTimeout(timer));
+}
+
+// ---------------------------------------------------------------------------
+// Utility: truncate large strings to cap memory usage
+// ---------------------------------------------------------------------------
+function truncate(str: string, maxLen: number): string {
+  return str.length > maxLen ? str.slice(0, maxLen) + '\n\n[...truncated for memory safety]' : str;
+}
+
+// ---------------------------------------------------------------------------
 // Web search using DuckDuckGo HTML fallback
+// ---------------------------------------------------------------------------
 export async function publicWebSearch(query: string, num: number = 10): Promise<unknown[]> {
   try {
     const ddgUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
@@ -75,7 +203,9 @@ export async function publicWebSearch(query: string, num: number = 10): Promise<
   }
 }
 
+// ---------------------------------------------------------------------------
 // IP Geolocation using public API
+// ---------------------------------------------------------------------------
 export async function publicIpGeo(ip: string): Promise<Record<string, unknown>> {
   try {
     const response = await fetch(`https://ipapi.co/${ip}/json/`, {
@@ -88,44 +218,84 @@ export async function publicIpGeo(ip: string): Promise<Record<string, unknown>> 
   }
 }
 
-// Safe web search with fallback
+// ---------------------------------------------------------------------------
+// Safe web search with fallback (singleton ZAI, timeout, concurrency)
+// ---------------------------------------------------------------------------
 export async function safeWebSearch(query: string, num: number = 10, retries: number = 2): Promise<unknown[]> {
-  // First try ZAI SDK
-  try {
-    const ZAI = (await import('z-ai-web-dev-sdk')).default;
-    const zai = await ZAI.create();
-    const results = await zai.functions.invoke('web_search', { query, num: Math.min(num, 20) });
-    if (Array.isArray(results) && results.length > 0) return results;
-  } catch (error) {
-    console.log('[zai] SDK search failed, using public fallback:', (error as Error).message?.substring(0, 100));
+  // Cap results to prevent memory bloat
+  const cappedNum = Math.min(num, MAX_SEARCH_RESULTS);
+
+  // First try ZAI SDK (with singleton + timeout + concurrency guard)
+  for (let attempt = 0; attempt <= Math.min(retries, 1); attempt++) {
+    try {
+      await acquireSlot();
+      const zai = await getZAIInstance();
+      const results = await withTimeout(
+        zai.functions.invoke('web_search', { query, num: cappedNum }),
+        ZAI_REQUEST_TIMEOUT_MS,
+        `web_search("${query.substring(0, 60)}")`,
+      );
+      if (Array.isArray(results) && results.length > 0) {
+        // Defensive: cap returned results in case the SDK returns more than requested
+        return results.slice(0, cappedNum);
+      }
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      console.log(`[zai] SDK search failed (attempt ${attempt + 1}):`, msg.substring(0, 100));
+
+      // If the instance itself may be broken, invalidate for next attempt
+      if (msg.includes('Timeout') || msg.includes('ECONNRESET') || msg.includes('socket')) {
+        invalidateZAIInstance();
+      }
+    } finally {
+      releaseSlot();
+    }
   }
 
   // Fallback to public search
-  return publicWebSearch(query, num);
+  return publicWebSearch(query, cappedNum);
 }
 
-// Safe AI analysis with fallback
+// ---------------------------------------------------------------------------
+// Safe AI analysis with fallback (singleton ZAI, timeout, concurrency)
+// ---------------------------------------------------------------------------
 export async function safeAIAnalysis(systemPrompt: string, userPrompt: string, retries: number = 1): Promise<string> {
-  try {
-    const ZAI = (await import('z-ai-web-dev-sdk')).default;
-    const zai = await ZAI.create();
-    const completion = await zai.chat.completions.create({
-      messages: [
-        { role: 'assistant', content: systemPrompt },
-        { role: 'user', content: userPrompt },
-      ],
-      thinking: { type: 'disabled' },
-    });
-    const content = completion.choices[0]?.message?.content;
-    if (content) return content;
-  } catch (error) {
-    console.log('[zai] AI analysis failed:', (error as Error).message?.substring(0, 100));
+  for (let attempt = 0; attempt <= Math.min(retries, 1); attempt++) {
+    try {
+      await acquireSlot();
+      const zai = await getZAIInstance();
+      const completion = await withTimeout(
+        zai.chat.completions.create({
+          messages: [
+            { role: 'assistant', content: systemPrompt },
+            { role: 'user', content: userPrompt },
+          ],
+          thinking: { type: 'disabled' },
+        }),
+        ZAI_REQUEST_TIMEOUT_MS,
+        `ai_analysis("${(systemPrompt + userPrompt).substring(0, 60)}")`,
+      );
+      const content = completion.choices[0]?.message?.content;
+      if (content) return truncate(content, MAX_ANALYSIS_CHARS);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      console.log(`[zai] AI analysis failed (attempt ${attempt + 1}):`, msg.substring(0, 100));
+
+      if (msg.includes('Timeout') || msg.includes('ECONNRESET') || msg.includes('socket')) {
+        invalidateZAIInstance();
+      }
+    } finally {
+      releaseSlot();
+    }
   }
 
   // Fallback: context-aware template analysis
   return generateFallbackAnalysis(systemPrompt, userPrompt);
 }
 
+// ---------------------------------------------------------------------------
+// Fallback analysis generator (unchanged logic, memory-safe)
+// ---------------------------------------------------------------------------
 function generateFallbackAnalysis(systemPrompt: string, userPrompt: string): string {
   const prompt = (systemPrompt + ' ' + userPrompt).toLowerCase();
 
@@ -156,7 +326,9 @@ function generateFallbackAnalysis(systemPrompt: string, userPrompt: string): str
   return `## 🔍 ANALYSIS\nOpen source intelligence analysis performed based on available data.\n\n## 📊 FINDINGS\n- Information gathered from public web sources\n- Data cross-referenced where possible\n- Analysis based on search result patterns\n\n## 🎯 RECOMMENDATIONS\n- Verify findings through additional sources\n- Monitor for changes over time\n- Cross-reference with other intelligence\n\n*Note: AI-powered deep analysis is temporarily limited. Results are based on structured search data.*`;
 }
 
-// Sequential web search with delay
+// ---------------------------------------------------------------------------
+// Sequential web search with delay (memory-efficient, capped concurrency)
+// ---------------------------------------------------------------------------
 export async function sequentialWebSearch(calls: Array<{ query: string; num?: number }>, delayMs: number = 1000): Promise<unknown[][]> {
   const results: unknown[][] = [];
   for (let i = 0; i < calls.length; i++) {
@@ -167,32 +339,44 @@ export async function sequentialWebSearch(calls: Array<{ query: string; num?: nu
   return results;
 }
 
-// Safe VLM with improved fallback
+// ---------------------------------------------------------------------------
+// Safe VLM with improved fallback (singleton ZAI, timeout, concurrency)
+// ---------------------------------------------------------------------------
 export async function safeVisionAnalysis(
   imageUrl: string,
   prompt: string,
   retries: number = 1
 ): Promise<{ success: boolean; content: string; error?: string }> {
   try {
-    const ZAI = (await import('z-ai-web-dev-sdk')).default;
-    const zai = await ZAI.create();
-    const response = await zai.chat.completions.createVision({
-      messages: [
-        {
-          role: 'user',
-          content: [
-            { type: 'text', text: prompt },
-            { type: 'image_url', image_url: { url: imageUrl } },
-          ],
-        },
-      ],
-      thinking: { type: 'disabled' },
-    });
+    await acquireSlot();
+    const zai = await getZAIInstance();
+    const response = await withTimeout(
+      zai.chat.completions.createVision({
+        messages: [
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: prompt },
+              { type: 'image_url', image_url: { url: imageUrl } },
+            ],
+          },
+        ],
+        thinking: { type: 'disabled' },
+      }),
+      ZAI_REQUEST_TIMEOUT_MS,
+      `vision_analysis("${prompt.substring(0, 40)}")`,
+    );
     const content = response.choices[0]?.message?.content || '';
-    if (content) return { success: true, content };
+    if (content) return { success: true, content: truncate(content, MAX_ANALYSIS_CHARS) };
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
     console.log('[zai] VLM failed:', msg.substring(0, 100));
+
+    if (msg.includes('Timeout') || msg.includes('ECONNRESET') || msg.includes('socket')) {
+      invalidateZAIInstance();
+    }
+  } finally {
+    releaseSlot();
   }
 
   // Try AI analysis as fallback (describe the image conceptually)
@@ -207,25 +391,37 @@ export async function safeVisionAnalysis(
   }
 }
 
-// Safe chat completion (replacement for getZAI direct calls)
+// ---------------------------------------------------------------------------
+// Safe chat completion (singleton ZAI, timeout, concurrency)
+// ---------------------------------------------------------------------------
 export async function safeChatCompletion(
   messages: Array<{ role: 'system' | 'assistant' | 'user'; content: string }>,
   options?: { temperature?: number; maxTokens?: number }
 ): Promise<{ success: boolean; content: string; error?: string }> {
   try {
-    const ZAI = (await import('z-ai-web-dev-sdk')).default;
-    const zai = await ZAI.create();
-    const completion = await zai.chat.completions.create({
-      messages: messages.map(m => ({
-        role: m.role === 'system' ? 'assistant' as const : m.role,
-        content: m.content,
-      })),
-      thinking: { type: 'disabled' },
-    });
+    await acquireSlot();
+    const zai = await getZAIInstance();
+    const completion = await withTimeout(
+      zai.chat.completions.create({
+        messages: messages.map(m => ({
+          role: m.role === 'system' ? 'assistant' as const : m.role,
+          content: m.content,
+        })),
+        thinking: { type: 'disabled' },
+      }),
+      ZAI_REQUEST_TIMEOUT_MS,
+      `chat_completion("${messages[messages.length - 1]?.content?.substring(0, 40) || ''}")`,
+    );
     const content = completion.choices[0]?.message?.content || '';
-    if (content) return { success: true, content };
+    if (content) return { success: true, content: truncate(content, MAX_ANALYSIS_CHARS) };
   } catch (error) {
     console.log('[zai] Chat completion failed:', (error as Error).message?.substring(0, 100));
+
+    if ((error as Error).message?.includes('Timeout') || (error as Error).message?.includes('ECONNRESET')) {
+      invalidateZAIInstance();
+    }
+  } finally {
+    releaseSlot();
   }
 
   // Fallback: use safeAIAnalysis for the last user message
@@ -239,7 +435,9 @@ export async function safeChatCompletion(
   }
 }
 
+// ---------------------------------------------------------------------------
+// Public ZAI accessor – returns the singleton instance
+// ---------------------------------------------------------------------------
 export async function getZAI() {
-  const ZAI = (await import('z-ai-web-dev-sdk')).default;
-  return ZAI.create();
+  return getZAIInstance();
 }
