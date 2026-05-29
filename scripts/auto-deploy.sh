@@ -123,6 +123,21 @@ seed().catch(e => { console.error(e); process.exit(1); });
 echo -e "${YELLOW}Building Next.js project (this may take a few minutes)...${NC}"
 npm run build
 
+# Copy static files to standalone output (required for standalone mode)
+echo -e "${YELLOW}Copying static assets to standalone build...${NC}"
+cp -r .next/static .next/standalone/.next/static 2>/dev/null || true
+cp -r public .next/standalone/public 2>/dev/null || true
+# Copy the database to standalone build location
+mkdir -p .next/standalone/db 2>/dev/null || true
+cp db/custom.db .next/standalone/db/custom.db 2>/dev/null || true
+
+# Create production .env for standalone server
+cat > .next/standalone/.env << 'PRODENV'
+DATABASE_URL=file:/opt/xanvyor-recon/db/custom.db
+NODE_ENV=production
+PORT=3000
+PRODENV
+
 echo -e "${GREEN}Build completed successfully!${NC}"
 
 # ============================================================
@@ -145,7 +160,7 @@ User=root
 WorkingDirectory=${APP_DIR}
 Environment=NODE_ENV=production
 Environment=PORT=${APP_PORT}
-Environment=DATABASE_URL=file:./db/custom.db
+Environment=DATABASE_URL=file:/opt/xanvyor-recon/db/custom.db
 Environment=PATH=/root/.nvm/versions/node/$(node -v)/bin:/root/.bun/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 ExecStart=${NODE_BIN} ${APP_DIR}/.next/standalone/server.js
 Restart=always
