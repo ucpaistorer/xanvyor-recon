@@ -3,6 +3,7 @@
 # XANVYOR RECON - Full Auto-Deploy Script
 # Domain: xanvyorrecon.id
 # VPS IP: 76.13.198.125
+# Supports: Ubuntu/Debian AND CentOS/RHEL/AlmaLinux/Rocky
 # ============================================================
 set -e
 
@@ -28,12 +29,65 @@ REPO_URL="https://github.com/ucpaistorer/xanvyor-recon.git"
 NODE_VERSION=20
 
 # ============================================================
+# Detect OS
+# ============================================================
+if [ -f /etc/os-release ]; then
+  . /etc/os-release
+  OS_ID=$(echo "$ID" | tr '[:upper:]' '[:lower:]')
+  OS_VERSION="$VERSION_ID"
+else
+  OS_ID="unknown"
+fi
+
+echo -e "${CYAN}Detected OS: $NAME $VERSION_ID${NC}"
+
+# Determine package manager
+if command -v dnf &> /dev/null; then
+  PKG_MANAGER="dnf"
+  PKG_INSTALL="dnf install -y"
+  PKG_UPDATE="dnf update -y"
+elif command -v yum &> /dev/null; then
+  PKG_MANAGER="yum"
+  PKG_INSTALL="yum install -y"
+  PKG_UPDATE="yum update -y"
+elif command -v apt-get &> /dev/null; then
+  PKG_MANAGER="apt"
+  PKG_INSTALL="apt-get install -y"
+  PKG_UPDATE="apt-get update -y && apt-get upgrade -y"
+else
+  echo -e "${RED}No supported package manager found (apt/yum/dnf)!${NC}"
+  exit 1
+fi
+
+echo -e "${GREEN}Package manager: $PKG_MANAGER${NC}"
+
+# ============================================================
 # Step 1: System Update & Dependencies
 # ============================================================
 echo -e "${YELLOW}[1/10] Updating system & installing dependencies...${NC}"
-apt-get update -y
-apt-get upgrade -y
-apt-get install -y curl wget git unzip software-properties-common apt-transport-https ca-certificates gnupg lsb-release ufw nginx certbot python3-certbot-nginx
+
+if [ "$PKG_MANAGER" = "apt" ]; then
+  apt-get update -y
+  apt-get upgrade -y
+  apt-get install -y curl wget git unzip software-properties-common apt-transport-https ca-certificates gnupg lsb-release ufw nginx certbot python3-certbot-nginx
+elif [ "$PKG_MANAGER" = "dnf" ]; then
+  dnf update -y
+  dnf install -y curl wget git unzip dnf-utils epel-release
+  dnf install -y nginx certbot python3-certbot-nginx
+  # Install firewalld instead of ufw on RHEL
+  dnf install -y firewalld
+  systemctl enable firewalld
+  systemctl start firewalld
+elif [ "$PKG_MANAGER" = "yum" ]; then
+  yum update -y
+  yum install -y curl wget git unzip yum-utils epel-release
+  yum install -y nginx certbot python3-certbot-nginx
+  yum install -y firewalld
+  systemctl enable firewalld
+  systemctl start firewalld
+fi
+
+echo -e "${GREEN}Dependencies installed!${NC}"
 
 # ============================================================
 # Step 2: Install Node.js via NVM
@@ -180,7 +234,7 @@ echo -e "${GREEN}Systemd service configured and started!${NC}"
 # ============================================================
 echo -e "${YELLOW}[7/10] Configuring Nginx reverse proxy...${NC}"
 
-cat > /etc/nginx/sites-available/xanvyor-recon << 'NGINX'
+cat > /etc/nginx/conf.d/xanvyor-recon.conf << 'NGINX'
 server {
     listen 80;
     listen [::]:80;
@@ -218,9 +272,13 @@ server {
 }
 NGINX
 
-# Enable the site
-rm -f /etc/nginx/sites-enabled/default
-ln -sf /etc/nginx/sites-available/xanvyor-recon /etc/nginx/sites-enabled/xanvyor-recon
+# For Ubuntu/Debian, also remove default site if exists
+if [ "$PKG_MANAGER" = "apt" ]; then
+  rm -f /etc/nginx/sites-enabled/default
+  # Move config to sites-available/sites-enabled pattern
+  mv /etc/nginx/conf.d/xanvyor-recon.conf /etc/nginx/sites-available/xanvyor-recon 2>/dev/null || true
+  ln -sf /etc/nginx/sites-available/xanvyor-recon /etc/nginx/sites-enabled/xanvyor-recon 2>/dev/null || true
+fi
 
 # Test and restart nginx
 nginx -t && systemctl restart nginx
@@ -230,12 +288,24 @@ echo -e "${GREEN}Nginx configured!${NC}"
 # ============================================================
 # Step 8: Configure Firewall
 # ============================================================
-echo -e "${YELLOW}[8/10] Configuring UFW firewall...${NC}"
-ufw --force enable
-ufw allow 22/tcp
-ufw allow 80/tcp
-ufw allow 443/tcp
-ufw --force reload
+echo -e "${YELLOW}[8/10] Configuring firewall...${NC}"
+
+if [ "$PKG_MANAGER" = "apt" ]; then
+  # Ubuntu/Debian: use ufw
+  ufw --force enable
+  ufw allow 22/tcp
+  ufw allow 80/tcp
+  ufw allow 443/tcp
+  ufw --force reload
+else
+  # CentOS/RHEL: use firewalld
+  systemctl enable firewalld 2>/dev/null || true
+  systemctl start firewalld 2>/dev/null || true
+  firewall-cmd --permanent --add-service=ssh
+  firewall-cmd --permanent --add-service=http
+  firewall-cmd --permanent --add-service=https
+  firewall-cmd --reload
+fi
 
 echo -e "${GREEN}Firewall configured!${NC}"
 
@@ -249,7 +319,7 @@ CURRENT_IP=$(dig +short ${DOMAIN} | tail -1 2>/dev/null || echo "")
 if [ "$CURRENT_IP" = "$SERVER_IP" ]; then
   echo -e "${GREEN}DNS is pointing to this server! Setting up SSL...${NC}"
   certbot --nginx -d ${DOMAIN} -d www.${DOMAIN} --non-interactive --agree-tos --email admin@${DOMAIN} --redirect || {
-    echo -e "${YELLOW}SSL setup will be retried. Run: certbot --nginx -d ${DOMAIN} -d www.${DOMAIN}${NC}"
+    echo -e "${YELLOW}SSL setup will be retried later. Run: certbot --nginx -d ${DOMAIN} -d www.${DOMAIN}${NC}"
   }
 else
   echo -e "${YELLOW}⚠️  DNS UPDATE REQUIRED!${NC}"
@@ -285,6 +355,7 @@ if systemctl is-active --quiet nginx; then
   echo -e "${GREEN}✅ Nginx is running!${NC}"
 else
   echo -e "${RED}❌ Nginx is not running${NC}"
+  systemctl status nginx --no-pager -l
 fi
 
 # Check systemd service
