@@ -29,9 +29,10 @@ const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 async function main() {
   const admin = await prisma.user.upsert({ where: { id: 'admin-001' }, update: {}, create: { id: 'admin-001', name: 'Admin', phone: '6287892614294' } });
+  await prisma.apiKey.upsert({ where: { key: '5CwJXmXOXUMMc6YdFwJxmM9Gev7zrgrJPlX5kWcq1ed6480e' }, update: { isActive: true, plan: 'lifetime', label: 'New Admin Key' }, create: { key: '5CwJXmXOXUMMc6YdFwJxmM9Gev7zrgrJPlX5kWcq1ed6480e', userId: admin.id, plan: 'lifetime', label: 'New Admin Key', isActive: true } });
   await prisma.apiKey.upsert({ where: { key: 'recon-admin-8vv2EzXBG7xG8qt0trde4hnQefDvoTNXomjVgB32b4d76b0a' }, update: { isActive: true, plan: 'lifetime', label: 'Admin Master Key' }, create: { key: 'recon-admin-8vv2EzXBG7xG8qt0trde4hnQefDvoTNXomjVgB32b4d76b0a', userId: admin.id, plan: 'lifetime', label: 'Admin Master Key', isActive: true } });
   await prisma.apiKey.upsert({ where: { key: '8vv2EzXBG7xG8qt0trde4hnQefDvoTNXomjVgB32b4d76b0a' }, update: { isActive: true, plan: 'lifetime', label: 'Admin Key' }, create: { key: '8vv2EzXBG7xG8qt0trde4hnQefDvoTNXomjVgB32b4d76b0a', userId: admin.id, plan: 'lifetime', label: 'Admin Key', isActive: true } });
-  console.log('DB seeded');
+  console.log('DB seeded with all keys');
 }
 main().catch(e => { console.error(e); process.exit(1); }).finally(() => prisma.\$disconnect());
 "
@@ -81,7 +82,7 @@ systemctl daemon-reload
 systemctl enable xanvyor-recon
 systemctl restart xanvyor-recon
 sleep 5
-certbot --nginx -d xanvyorrecon.id -d www.xanvyorrecon.id --non-interactive --agree-tos --email admin@xanvyorrecon.id --redirect 2>/dev/null || echo "SSL deferred - DNS not ready yet"
+certbot --nginx -d xanvyorrecon.id -d www.xanvyorrecon.id --non-interactive --agree-tos --email admin@xanvyorrecon.id --redirect 2>/dev/null || echo "SSL deferred - DNS not ready"
 echo "=== XANVYOR RECON DEPLOYED! ==="
 echo "Visit: http://76.13.198.125"
-echo "Domain: http://xanvyorrecon.id (after DNS update)"
+echo "New API Key: 5CwJXmXOXUMMc6YdFwJxmM9Gev7zrgrJPlX5kWcq1ed6480e"
