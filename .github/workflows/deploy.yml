@@ -1,0 +1,25 @@
+name: Deploy to VPS
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: 76.13.198.125
+          username: root
+          password: 753951Ucup##
+          script: |
+            cd /opt/xanvyor-recon
+            git pull origin main
+            npm install --legacy-peer-deps
+            npx prisma generate
+            npm run build
+            systemctl restart xanvyor-recon
+            echo "Deployed at $(date)"
