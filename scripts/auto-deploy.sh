@@ -62,7 +62,7 @@ if ! command -v bun &> /dev/null; then
   export BUN_INSTALL="$HOME/.bun"
   export PATH="$BUN_INSTALL/bin:$PATH"
 fi
-echo -e "${GREEN}Bun installed: $(bun --version)${NC}"
+echo -e "${GREEN}Bun installed: $(bun --version 2>/dev/null || echo 'installed')${NC}"
 
 # ============================================================
 # Step 4: Clone/Update Repository
@@ -99,7 +99,7 @@ npx prisma db push
 
 # Seed database
 echo -e "${YELLOW}Seeding database with API keys...${NC}"
-npx prisma db seed || bunx tsx prisma/seed.ts || node -e "
+npx prisma db seed 2>/dev/null || bunx tsx prisma/seed.ts 2>/dev/null || node -e "
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 async function seed() {
@@ -127,11 +127,8 @@ npm run build
 echo -e "${YELLOW}Copying static assets to standalone build...${NC}"
 cp -r .next/static .next/standalone/.next/static 2>/dev/null || true
 cp -r public .next/standalone/public 2>/dev/null || true
-# Copy the database to standalone build location
-mkdir -p .next/standalone/db 2>/dev/null || true
-cp db/custom.db .next/standalone/db/custom.db 2>/dev/null || true
 
-# Create production .env for standalone server
+# Create production .env for standalone server with ABSOLUTE path
 cat > .next/standalone/.env << 'PRODENV'
 DATABASE_URL=file:/opt/xanvyor-recon/db/custom.db
 NODE_ENV=production
@@ -147,7 +144,6 @@ echo -e "${YELLOW}[6/10] Configuring systemd service...${NC}"
 
 # Get the actual node path
 NODE_BIN=$(which node)
-BUN_BIN=$(which bun)
 
 cat > /etc/systemd/system/xanvyor-recon.service << EOF
 [Unit]
@@ -196,9 +192,6 @@ server {
     add_header X-XSS-Protection "1; mode=block" always;
     add_header Referrer-Policy "strict-origin-when-cross-origin" always;
 
-    # Rate limiting zone
-    limit_req_zone $binary_remote_addr zone=api:10m rate=30r/m;
-
     # Max upload size for image analysis
     client_max_body_size 50M;
 
@@ -216,29 +209,11 @@ server {
         proxy_connect_timeout 75s;
     }
 
-    # API rate limiting
-    location /api/ {
-        limit_req zone=api burst=20 nodelay;
-        proxy_pass http://127.0.0.1:3000;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_read_timeout 300s;
-    }
-
     # Static files caching
     location /_next/static/ {
         proxy_pass http://127.0.0.1:3000;
         expires 365d;
         add_header Cache-Control "public, immutable";
-    }
-
-    # Health check endpoint
-    location /health {
-        proxy_pass http://127.0.0.1:3000;
-        access_log off;
     }
 }
 NGINX
@@ -248,8 +223,7 @@ rm -f /etc/nginx/sites-enabled/default
 ln -sf /etc/nginx/sites-available/xanvyor-recon /etc/nginx/sites-enabled/xanvyor-recon
 
 # Test and restart nginx
-nginx -t
-systemctl restart nginx
+nginx -t && systemctl restart nginx
 
 echo -e "${GREEN}Nginx configured!${NC}"
 
@@ -266,23 +240,28 @@ ufw --force reload
 echo -e "${GREEN}Firewall configured!${NC}"
 
 # ============================================================
-# Step 9: SSL Certificate with Certbot
+# Step 9: Update DNS & SSL Certificate
 # ============================================================
-echo -e "${YELLOW}[9/10] Setting up SSL certificate...${NC}"
-# Check if DNS is pointing to this server
-CURRENT_IP=$(dig +short ${DOMAIN} | tail -1)
+echo -e "${YELLOW}[9/10] Checking DNS & setting up SSL...${NC}"
 SERVER_IP=$(curl -s ifconfig.me 2>/dev/null || echo "76.13.198.125")
+CURRENT_IP=$(dig +short ${DOMAIN} | tail -1 2>/dev/null || echo "")
 
-if [ "$CURRENT_IP" = "$SERVER_IP" ] || [ "$CURRENT_IP" = "" ]; then
-  echo "Attempting SSL certificate setup..."
+if [ "$CURRENT_IP" = "$SERVER_IP" ]; then
+  echo -e "${GREEN}DNS is pointing to this server! Setting up SSL...${NC}"
   certbot --nginx -d ${DOMAIN} -d www.${DOMAIN} --non-interactive --agree-tos --email admin@${DOMAIN} --redirect || {
-    echo -e "${YELLOW}SSL setup failed - DNS may not be pointing to this server yet.${NC}"
-    echo -e "${YELLOW}Run this after updating DNS: certbot --nginx -d ${DOMAIN} -d www.${DOMAIN}${NC}"
+    echo -e "${YELLOW}SSL setup will be retried. Run: certbot --nginx -d ${DOMAIN} -d www.${DOMAIN}${NC}"
   }
 else
-  echo -e "${YELLOW}DNS for ${DOMAIN} points to ${CURRENT_IP}, not this server (${SERVER_IP})${NC}"
-  echo -e "${YELLOW}Update your DNS A record at Hostinger to point to ${SERVER_IP}${NC}"
-  echo -e "${YELLOW}Then run: certbot --nginx -d ${DOMAIN} -d www.${DOMAIN}${NC}"
+  echo -e "${YELLOW}⚠️  DNS UPDATE REQUIRED!${NC}"
+  echo -e "${YELLOW}Current: ${DOMAIN} -> ${CURRENT_IP:-'not resolving'}${NC}"
+  echo -e "${YELLOW}Needed:  ${DOMAIN} -> ${SERVER_IP}${NC}"
+  echo ""
+  echo -e "${CYAN}Update DNS at Hostinger:${NC}"
+  echo -e "  1. Go to: https://hpanel.hostinger.com/domains/xanvyorrecon.id/dns"
+  echo -e "  2. Edit A record '@' -> ${SERVER_IP}"
+  echo -e "  3. Edit A record 'www' -> ${SERVER_IP}"
+  echo -e "  4. Wait 5-30 min for DNS propagation"
+  echo -e "  5. Then run: ${CYAN}certbot --nginx -d ${DOMAIN} -d www.${DOMAIN}${NC}"
 fi
 
 # ============================================================
@@ -291,10 +270,10 @@ fi
 echo -e "${YELLOW}[10/10] Running final verification...${NC}"
 
 # Wait for app to start
-sleep 5
+sleep 8
 
 # Check if the app is running
-if curl -s -o /dev/null -w "%{http_code}" http://localhost:3000 | grep -q "200\|301\|302"; then
+if curl -s -o /dev/null -w "%{http_code}" http://localhost:3000 2>/dev/null | grep -q "200\|301\|302"; then
   echo -e "${GREEN}✅ Application is running on port 3000!${NC}"
 else
   echo -e "${RED}❌ Application may not be running. Checking logs...${NC}"
@@ -323,7 +302,7 @@ echo -e "${CYAN}═════════════════════�
 echo ""
 echo -e "Access your application at:"
 echo -e "  ${GREEN}http://${DOMAIN}${NC}"
-echo -e "  ${GREEN}http://$(curl -s ifconfig.me 2>/dev/null || echo '76.13.198.125')${NC}"
+echo -e "  ${GREEN}http://${SERVER_IP}${NC}"
 echo ""
 echo -e "Admin API Keys:"
 echo -e "  ${YELLOW}recon-admin-5CwJXmXOXUMMc6YdFwJxmM9Gev7zrgrJPlX5kWcq1ed6480e${NC}"
@@ -333,17 +312,15 @@ echo -e "User API Keys:"
 echo -e "  ${YELLOW}5CwJXmXOXUMMc6YdFwJxmM9Gev7zrgrJPlX5kWcq1ed6480e${NC}"
 echo -e "  ${YELLOW}8vv2EzXBG7xG8qt0trde4hnQefDvoTNXomjVgB32b4d76b0a${NC}"
 echo ""
-echo -e "${YELLOW}⚠️  IMPORTANT DNS SETUP:${NC}"
-echo -e "  If ${DOMAIN} is not pointing to this server:"
-echo -e "  1. Go to Hostinger DNS Zone Editor"
-echo -e "  2. Change A record for @ to: 76.13.198.125"
-echo -e "  3. Change A record for www to: 76.13.198.125"
-echo -e "  4. Wait for DNS propagation (5-30 minutes)"
-echo -e "  5. Run: ${CYAN}certbot --nginx -d ${DOMAIN} -d www.${DOMAIN}${NC}"
+echo -e "${YELLOW}⚠️  DNS SETUP (if not done yet):${NC}"
+echo -e "  Go to: https://hpanel.hostinger.com/domains/xanvyorrecon.id/dns"
+echo -e "  Change A record '@' to: ${SERVER_IP}"
+echo -e "  Change A record 'www' to: ${SERVER_IP}"
+echo -e "  Then: certbot --nginx -d ${DOMAIN} -d www.${DOMAIN}"
 echo ""
 echo -e "Useful commands:"
-echo -e "  Check status: ${CYAN}systemctl status xanvyor-recon${NC}"
-echo -e "  View logs:    ${CYAN}journalctl -u xanvyor-recon -f${NC}"
-echo -e "  Restart:      ${CYAN}systemctl restart xanvyor-recon${NC}"
-echo -e "  Rebuild:      ${CYAN}cd ${APP_DIR} && git pull && npm run build && systemctl restart xanvyor-recon${NC}"
+echo -e "  Status:  ${CYAN}systemctl status xanvyor-recon${NC}"
+echo -e "  Logs:    ${CYAN}journalctl -u xanvyor-recon -f${NC}"
+echo -e "  Restart: ${CYAN}systemctl restart xanvyor-recon${NC}"
+echo -e "  Rebuild: ${CYAN}cd ${APP_DIR} && git pull && npm run build && cp -r .next/static .next/standalone/.next/static && cp -r public .next/standalone/public && systemctl restart xanvyor-recon${NC}"
 echo ""
