@@ -4,7 +4,7 @@
 # Fixes: SSL, Database, Features, Service
 # Domain: xanvyorrecon.id | VPS: 76.13.198.125
 # ============================================================
-set -e
+# Don't use set -e - we handle errors manually for better UX
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -85,12 +85,15 @@ echo -e "${GREEN}Bun: $(bun --version 2>/dev/null || echo 'installed')${NC}"
 # Step 5: Clone/Update Repository
 # ============================================================
 echo -e "${YELLOW}[5/12] Cloning/updating repository...${NC}"
-if [ -d "$APP_DIR" ]; then
+if [ -d "$APP_DIR/.git" ]; then
+  # Valid git repo - update it
   cd "$APP_DIR"
   git fetch origin
   git reset --hard origin/main
   git clean -fd
 else
+  # Not a git repo or doesn't exist - remove and clone fresh
+  rm -rf "$APP_DIR"
   git clone "$REPO_URL" "$APP_DIR"
   cd "$APP_DIR"
 fi
