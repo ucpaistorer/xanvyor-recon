@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import { createHmac } from 'crypto';
 
 const execAsync = promisify(exec);
 
@@ -13,9 +14,7 @@ const VALID_ADMIN_KEYS = [
 const GITHUB_WEBHOOK_SECRET = 'recon-admin-5CwJXmXOXUMMc6YdFwJxmM9Gev7zrgrJPlX5kWcq1ed6480e';
 
 function verifyGithubSignature(payload: string, signature: string): boolean {
-  const crypto = require('crypto');
-  const expected = 'sha256=' + crypto
-    .createHmac('sha256', GITHUB_WEBHOOK_SECRET)
+  const expected = 'sha256=' + createHmac('sha256', GITHUB_WEBHOOK_SECRET)
     .update(payload)
     .digest('hex');
   return expected === signature;

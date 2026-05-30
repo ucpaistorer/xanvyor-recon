@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import dynamic from 'next/dynamic';
-import { Loader2, Menu, X, ChevronLeft, ChevronRight, Activity, Zap, Crown, LogOut } from 'lucide-react';
+import { Loader2, Menu, X, ChevronLeft, ChevronRight, Activity, Zap, Crown, LogOut, Rocket, Shield, Terminal, Copy, CheckCircle2, ExternalLink, AlertTriangle } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 
@@ -55,10 +55,224 @@ function ModuleLoader() {
 }
 
 // ============================================================
+// VPS Deployment Trigger Component
+// ============================================================
+function DeployTrigger({ onDeployed }: { onDeployed: () => void }) {
+  const [copied, setCopied] = useState(false);
+  const [deploySent, setDeploySent] = useState(false);
+  const [step, setStep] = useState(1);
+
+  const deployCommand = `fetch('/api/admin/deploy',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({apiKey:'recon-admin-5CwJXmXOXUMMc6YdFwJxmM9Gev7zrgrJPlX5kWcq1ed6480e',action:'fix-all'})}).then(r=>r.json()).then(d=>{console.log('DEPLOY RESULT:',d);alert(d.success?'Deployment started! Check status in 2 min.':'Error: '+d.error)})`;
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(deployCommand).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 3000);
+    });
+  };
+
+  const handleDirectDeploy = async () => {
+    setDeploySent(true);
+    try {
+      const res = await fetch('https://xanvyorrecon.id/api/admin/deploy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          apiKey: 'recon-admin-5CwJXmXOXUMMc6YdFwJxmM9Gev7zrgrJPlX5kWcq1ed6480e',
+          action: 'fix-all'
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        alert('Deployment started successfully! The site will be ready in 3-5 minutes.');
+        onDeployed();
+      } else {
+        alert('Deploy response: ' + JSON.stringify(data));
+        setDeploySent(false);
+      }
+    } catch (err) {
+      alert('Direct request failed (expected due to SSL). Use the console method instead.');
+      setDeploySent(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-[#0a0a14] flex items-center justify-center p-4">
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="max-w-2xl w-full"
+      >
+        {/* Header */}
+        <div className="text-center mb-8">
+          <div className="w-20 h-20 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-emerald-500 to-cyan-500 flex items-center justify-center">
+            <Rocket className="w-10 h-10 text-white" />
+          </div>
+          <h1 className="text-3xl font-bold text-white mb-2">XANVYOR RECON Deploy</h1>
+          <p className="text-gray-400">One-click deployment to xanvyorrecon.id</p>
+        </div>
+
+        {/* Warning */}
+        <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4 mb-6">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="text-amber-200 font-semibold text-sm">SSL Certificate Issue Detected</p>
+              <p className="text-amber-200/70 text-xs mt-1">
+                Your VPS at xanvyorrecon.id has an invalid SSL certificate. The deployment will fix this automatically by installing a valid Let&apos;s Encrypt certificate.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Method 1: Direct Deploy Button */}
+        <div className="bg-[#111122] border border-border/30 rounded-xl p-6 mb-4">
+          <div className="flex items-center gap-2 mb-3">
+            <Shield className="w-5 h-5 text-emerald-400" />
+            <h2 className="text-lg font-semibold text-white">Method 1: Click to Deploy</h2>
+          </div>
+          <p className="text-gray-400 text-sm mb-4">
+            First, open <a href="https://xanvyorrecon.id" target="_blank" rel="noopener noreferrer" className="text-emerald-400 underline">xanvyorrecon.id</a> in a new tab, click &quot;Advanced&quot; → &quot;Proceed anyway&quot; to accept the SSL warning, then come back and click Deploy.
+          </p>
+          <div className="flex gap-3">
+            <a
+              href="https://xanvyorrecon.id"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors"
+            >
+              <ExternalLink className="w-4 h-4" />
+              Open xanvyorrecon.id
+            </a>
+            <button
+              onClick={handleDirectDeploy}
+              disabled={deploySent}
+              className="flex items-center gap-2 px-6 py-2.5 bg-gradient-to-r from-emerald-500 to-cyan-500 hover:from-emerald-600 hover:to-cyan-600 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg text-sm font-bold transition-all"
+            >
+              <Rocket className="w-4 h-4" />
+              {deploySent ? 'Deploying...' : 'Deploy Now'}
+            </button>
+          </div>
+        </div>
+
+        {/* Method 2: Console Command */}
+        <div className="bg-[#111122] border border-border/30 rounded-xl p-6 mb-4">
+          <div className="flex items-center gap-2 mb-3">
+            <Terminal className="w-5 h-5 text-cyan-400" />
+            <h2 className="text-lg font-semibold text-white">Method 2: Browser Console</h2>
+          </div>
+          <div className="space-y-3">
+            <div className="flex items-start gap-3">
+              <span className="flex-shrink-0 w-6 h-6 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-xs font-bold">1</span>
+              <p className="text-gray-300 text-sm">Open <a href="https://xanvyorrecon.id" target="_blank" rel="noopener noreferrer" className="text-emerald-400 underline">xanvyorrecon.id</a> → Click &quot;Advanced&quot; → &quot;Proceed to site (unsafe)&quot;</p>
+            </div>
+            <div className="flex items-start gap-3">
+              <span className="flex-shrink-0 w-6 h-6 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-xs font-bold">2</span>
+              <p className="text-gray-300 text-sm">Press <kbd className="px-1.5 py-0.5 bg-gray-700 rounded text-xs">F12</kbd> or <kbd className="px-1.5 py-0.5 bg-gray-700 rounded text-xs">Ctrl+Shift+J</kbd> to open Console</p>
+            </div>
+            <div className="flex items-start gap-3">
+              <span className="flex-shrink-0 w-6 h-6 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-xs font-bold">3</span>
+              <p className="text-gray-300 text-sm">Copy &amp; paste this command, then press Enter:</p>
+            </div>
+          </div>
+          <div className="mt-3 relative">
+            <div className="bg-black/50 border border-emerald-500/30 rounded-lg p-3 font-mono text-xs text-emerald-300 break-all pr-24">
+              {deployCommand}
+            </div>
+            <button
+              onClick={handleCopy}
+              className="absolute top-2 right-2 flex items-center gap-1.5 px-3 py-1.5 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 rounded-md text-xs font-medium transition-colors"
+            >
+              {copied ? <CheckCircle2 className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+              {copied ? 'Copied!' : 'Copy'}
+            </button>
+          </div>
+        </div>
+
+        {/* Method 3: SSH Command */}
+        <div className="bg-[#111122] border border-border/30 rounded-xl p-6 mb-4">
+          <div className="flex items-center gap-2 mb-3">
+            <Terminal className="w-5 h-5 text-purple-400" />
+            <h2 className="text-lg font-semibold text-white">Method 3: SSH Terminal</h2>
+          </div>
+          <p className="text-gray-400 text-sm mb-3">Open Hostinger VPS Terminal or SSH into your VPS and run:</p>
+          <div className="relative">
+            <div className="bg-black/50 border border-purple-500/30 rounded-lg p-3 font-mono text-xs text-purple-300 pr-24">
+              bash &lt;(curl -sL https://raw.githubusercontent.com/ucpaistorer/xanvyor-recon/main/scripts/fix-all.sh)
+            </div>
+            <button
+              onClick={() => {
+                navigator.clipboard.writeText('bash <(curl -sL https://raw.githubusercontent.com/ucpaistorer/xanvyor-recon/main/scripts/fix-all.sh)');
+                setCopied(true);
+                setTimeout(() => setCopied(false), 3000);
+              }}
+              className="absolute top-2 right-2 flex items-center gap-1.5 px-3 py-1.5 bg-purple-500/20 hover:bg-purple-500/30 text-purple-400 rounded-md text-xs font-medium transition-colors"
+            >
+              {copied ? <CheckCircle2 className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+              {copied ? 'Copied!' : 'Copy'}
+            </button>
+          </div>
+        </div>
+
+        {/* What happens */}
+        <div className="bg-[#111122] border border-border/30 rounded-xl p-6">
+          <h2 className="text-lg font-semibold text-white mb-3">What the deployment does:</h2>
+          <ul className="space-y-2 text-sm text-gray-400">
+            <li className="flex items-start gap-2">
+              <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0 mt-0.5" />
+              Clones latest code from GitHub
+            </li>
+            <li className="flex items-start gap-2">
+              <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0 mt-0.5" />
+              Installs Node.js 20, Nginx, Certbot
+            </li>
+            <li className="flex items-start gap-2">
+              <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0 mt-0.5" />
+              Builds the Next.js application
+            </li>
+            <li className="flex items-start gap-2">
+              <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0 mt-0.5" />
+              Sets up SQLite database with API keys
+            </li>
+            <li className="flex items-start gap-2">
+              <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0 mt-0.5" />
+              Installs valid SSL certificate (Let&apos;s Encrypt)
+            </li>
+            <li className="flex items-start gap-2">
+              <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0 mt-0.5" />
+              Configures Nginx reverse proxy with HTTPS
+            </li>
+            <li className="flex items-start gap-2">
+              <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0 mt-0.5" />
+              Sets up systemd service for auto-restart
+            </li>
+            <li className="flex items-start gap-2">
+              <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0 mt-0.5" />
+              All 30 OSINT features ready to use
+            </li>
+          </ul>
+        </div>
+
+        {/* Skip button */}
+        <div className="text-center mt-6">
+          <button
+            onClick={onDeployed}
+            className="text-gray-500 hover:text-gray-300 text-sm transition-colors"
+          >
+            Skip → Use app locally
+          </button>
+        </div>
+      </motion.div>
+    </div>
+  );
+}
+
+// ============================================================
 // Main App Component
 // ============================================================
 export default function OSINTApp() {
   const [view, setView] = useState<AppView>('landing');
+  const [showDeploy, setShowDeploy] = useState(true);
   const [auth, setAuth] = useState<AuthState>({ isLoggedIn: false, isAdmin: false, user: null, apiKey: null, apiKeyString: '' });
   const [activeModule, setActiveModule] = useState<ModuleType>('dashboard');
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -112,6 +326,11 @@ export default function OSINTApp() {
     setView('admin');
     setMobileSidebarOpen(false);
   };
+
+  // Show deploy trigger page
+  if (showDeploy) {
+    return <DeployTrigger onDeployed={() => setShowDeploy(false)} />;
+  }
 
   // Loading screen
   if (validating) {
