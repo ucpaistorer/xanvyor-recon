@@ -8,7 +8,7 @@ function parseResults(results: unknown[]) {
       url: r.url || '',
       title: r.name || '',
       snippet: r.snippet || '',
-      source: r.host_name || '',
+      domain: r.host_name || '',
     }))
     .filter((r) => r.title || r.snippet);
 }
@@ -236,7 +236,7 @@ export async function POST(request: NextRequest) {
       title: r.title,
       snippet: r.snippet,
       url: r.url,
-      source: r.source,
+      domain: r.domain,
       date: new Date().toISOString().split('T')[0], // Approximate
     }));
 

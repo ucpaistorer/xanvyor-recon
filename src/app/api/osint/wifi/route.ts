@@ -126,7 +126,7 @@ function parseResults(results: unknown[]) {
       url: r.url || '',
       title: r.name || '',
       snippet: r.snippet || '',
-      source: r.host_name || '',
+      domain: r.host_name || '',
     }))
     .filter((r) => r.title || r.snippet);
 }
@@ -294,7 +294,7 @@ export async function POST(request: NextRequest) {
         url: r.url,
         title: r.title,
         snippet: r.snippet,
-        source: r.source,
+        domain: r.domain,
       }));
 
     // Security results
@@ -304,7 +304,7 @@ export async function POST(request: NextRequest) {
         url: r.url,
         title: r.title,
         snippet: r.snippet,
-        source: r.source,
+        domain: r.domain,
       }));
 
     // Vulnerability results
@@ -326,7 +326,7 @@ export async function POST(request: NextRequest) {
           url: r.url,
           title: r.title,
           snippet: r.snippet,
-          source: r.source,
+          domain: r.domain,
           severity,
         };
       });
@@ -348,7 +348,7 @@ export async function POST(request: NextRequest) {
         url: r.url,
         title: r.title,
         snippet: r.snippet,
-        source: r.source,
+        domain: r.domain,
       }));
 
     // Data leak detection with severity
@@ -394,7 +394,7 @@ export async function POST(request: NextRequest) {
         return {
           type,
           severity,
-          source: r.source,
+          domain: r.domain,
           description: r.snippet.substring(0, 250),
           url: r.url,
         };

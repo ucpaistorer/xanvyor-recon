@@ -8,7 +8,7 @@ function parseResults(results: unknown[]) {
       url: r.url || '',
       title: r.name || '',
       snippet: r.snippet || '',
-      source: r.host_name || '',
+      domain: r.host_name || '',
     }))
     .filter((r) => r.title || r.snippet);
 }
@@ -398,7 +398,7 @@ export async function POST(request: NextRequest) {
         return {
           type,
           severity,
-          source: r.source,
+          domain: r.domain,
           description: r.snippet.substring(0, 300),
           url: r.url,
         };
@@ -409,7 +409,7 @@ export async function POST(request: NextRequest) {
       url: r.url,
       title: r.title,
       snippet: r.snippet,
-      source: r.source,
+      domain: r.domain,
       category: fraudMatches.some((f) => f.url === r.url) ? 'Fraud Report' as const
         : criticalMatches.some((c) => c.url === r.url) ? 'Critical Alert' as const
         : 'Search Result' as const,

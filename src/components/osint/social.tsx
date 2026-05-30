@@ -6,8 +6,6 @@ import {
   Users,
   Loader2,
   AlertTriangle,
-  User,
-  Car,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -19,8 +17,8 @@ interface SocialResult {
   success: boolean; username: string;
   profiles: Array<{ platform: string; icon: string; url: string; detected: boolean; category: string; confidence: string }>;
   detectedCount: number; totalChecked: number;
-  profileDetails: Array<{ platform: string; bio: string; followers: number; following: number; posts: number; verified: boolean; accountAge: string }>;
-  linkedAccounts: string[];
+  profileDetails: Array<{ platform: string; bio: string; followers: string; following: string; posts: string; verified: boolean; accountAge: string }>;
+  linkedAccounts: Array<{ title: string; snippet: string; url: string; domain: string }>
   dataLeaks: Array<{ type: string; severity: string; source: string; description: string; url: string }>;
   leakCount: number;
   digitalFootprint: { score: number; riskLevel: string; exposureLevel: string };
@@ -85,10 +83,25 @@ export function SocialModule() {
                     <div key={i} className="flex items-center justify-between p-2 rounded border border-border/20 bg-card/30">
                       <div><div className="text-sm font-medium">{p.platform} {p.verified && <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30 text-[8px] ml-1">✓ Verified</Badge>}</div><div className="text-xs text-muted-foreground line-clamp-1">{p.bio}</div></div>
                       <div className="flex gap-3 text-xs text-muted-foreground">
-                        {p.followers > 0 && <span>{p.followers.toLocaleString()} followers</span>}
-                        {p.posts > 0 && <span>{p.posts} posts</span>}
+                        {p.followers && <span>{p.followers} followers</span>}
+                        {p.posts && <span>{p.posts} posts</span>}
                       </div>
                     </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+          {result.linkedAccounts?.length > 0 && (
+            <Card className="border-purple-500/30 bg-purple-500/5">
+              <CardHeader className="pb-2"><CardTitle className="text-sm flex items-center gap-2 text-purple-400"><Users className="w-4 h-4" />Linked Accounts</CardTitle></CardHeader>
+              <CardContent>
+                <div className="space-y-2 max-h-64 overflow-y-auto">
+                  {result.linkedAccounts.map((a, i) => (
+                    <a key={i} href={a.url} target="_blank" rel="noopener noreferrer" className="flex items-center justify-between p-2 rounded border border-border/20 bg-card/30 hover:bg-card/50 transition-colors block">
+                      <div><div className="text-sm font-medium">{a.title}</div><div className="text-xs text-muted-foreground line-clamp-1">{a.snippet}</div></div>
+                      <Badge variant="outline" className="text-[9px] ml-2 shrink-0">{a.domain}</Badge>
+                    </a>
                   ))}
                 </div>
               </CardContent>

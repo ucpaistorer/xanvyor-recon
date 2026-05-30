@@ -327,7 +327,7 @@ export async function POST(request: NextRequest) {
           url: r.url || '',
           title: r.name || '',
           snippet: r.snippet || '',
-          source: r.host_name || '',
+          domain: r.host_name || '',
         }))
         .filter((r) => r.title || r.snippet);
     };
@@ -382,7 +382,7 @@ export async function POST(request: NextRequest) {
         return {
           type: 'Vehicle Theft/Theft Report' as const,
           severity,
-          source: r.source,
+          domain: r.domain,
           description: r.snippet.substring(0, 300),
           url: r.url,
           date: '',
@@ -408,7 +408,7 @@ export async function POST(request: NextRequest) {
         return {
           type: 'Traffic Accident' as const,
           severity,
-          source: r.source,
+          domain: r.domain,
           description: r.snippet.substring(0, 300),
           url: r.url,
           date: '',
@@ -447,7 +447,7 @@ export async function POST(request: NextRequest) {
         return {
           type,
           severity,
-          source: r.source,
+          domain: r.domain,
           description: r.snippet.substring(0, 300),
           url: r.url,
         };
@@ -482,7 +482,7 @@ export async function POST(request: NextRequest) {
         return {
           type,
           severity,
-          source: r.source,
+          domain: r.domain,
           description: r.snippet.substring(0, 300),
           url: r.url,
         };

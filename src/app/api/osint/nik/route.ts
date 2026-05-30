@@ -170,7 +170,7 @@ export async function POST(request: NextRequest) {
       title: r.name || '',
       snippet: r.snippet || '',
       url: r.url || '',
-      source: r.host_name || '',
+      domain: r.host_name || '',
     }));
 
     // Try to extract province/city/subdistrict from area search results
@@ -200,7 +200,7 @@ export async function POST(request: NextRequest) {
       title: r.name || '',
       snippet: r.snippet || '',
       url: r.url || '',
-      source: r.host_name || '',
+      domain: r.host_name || '',
     }));
 
     // Data leak detection with severity classification
@@ -236,7 +236,7 @@ export async function POST(request: NextRequest) {
         return {
           type,
           severity,
-          source: r.host_name || '',
+          domain: r.host_name || '',
           description: r.snippet?.substring(0, 250) || '',
           url: r.url || '',
         };
@@ -247,7 +247,7 @@ export async function POST(request: NextRequest) {
       title: r.name || '',
       snippet: r.snippet || '',
       url: r.url || '',
-      source: r.host_name || '',
+      domain: r.host_name || '',
     }));
 
     // Comprehensive AI analysis
