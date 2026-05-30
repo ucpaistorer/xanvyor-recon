@@ -3,7 +3,7 @@ bun install v1.3.14 (0d9b296a)
 
 + z-ai-web-dev-sdk@0.0.18
 
-1 package installed [8.00ms]
+1 package installed [2.00ms]
 [zai-proxy] Running bun run dev...
 $ bun --hot index.ts
 🚀 ZAI Proxy Service running on port 3001

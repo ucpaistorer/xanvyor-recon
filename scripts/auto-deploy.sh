@@ -5,7 +5,7 @@
 # VPS IP: 76.13.198.125
 # Supports: Ubuntu/Debian AND CentOS/RHEL/AlmaLinux/Rocky
 # ============================================================
-set -e
+# Don't use set -e - we handle errors manually
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -91,12 +91,13 @@ echo -e "${GREEN}Bun: $(bun --version 2>/dev/null || echo 'installed')${NC}"
 # Step 5: Clone/Update Repository
 # ============================================================
 echo -e "${YELLOW}[5/12] Cloning XANVYOR RECON repository...${NC}"
-if [ -d "$APP_DIR" ]; then
+if [ -d "$APP_DIR/.git" ]; then
   cd "$APP_DIR"
   git fetch origin
   git reset --hard origin/main
   git clean -fd
 else
+  rm -rf "$APP_DIR"
   git clone "$REPO_URL" "$APP_DIR"
   cd "$APP_DIR"
 fi
