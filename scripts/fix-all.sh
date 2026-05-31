@@ -4,7 +4,6 @@
 # Fixes: SSL, Database, Features, Service
 # Domain: xanvyorrecon.id | VPS: 76.13.198.125
 # ============================================================
-# Don't use set -e - we handle errors manually for better UX
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -31,6 +30,9 @@ echo -e "${YELLOW}[1/12] Stopping existing services...${NC}"
 systemctl stop xanvyor-recon 2>/dev/null || true
 pkill -f "node.*server.js" 2>/dev/null || true
 pkill -f "next start" 2>/dev/null || true
+pkill -f "bun.*start" 2>/dev/null || true
+# Stop any PM2 processes
+pm2 delete all 2>/dev/null || true
 sleep 2
 echo -e "${GREEN}Services stopped!${NC}"
 
@@ -38,9 +40,10 @@ echo -e "${GREEN}Services stopped!${NC}"
 # Step 2: Install system dependencies
 # ============================================================
 echo -e "${YELLOW}[2/12] Installing system dependencies...${NC}"
+export DEBIAN_FRONTEND=noninteractive
 if command -v apt-get &> /dev/null; then
   apt-get update -y
-  apt-get install -y curl wget git unzip software-properties-common apt-transport-https ca-certificates gnupg lsb-release ufw nginx certbot python3-certbot-nginx
+  apt-get install -y curl wget git unzip software-properties-common apt-transport-https ca-certificates gnupg lsb-release ufw nginx certbot python3-certbot-nginx build-essential python3
 elif command -v dnf &> /dev/null; then
   dnf update -y
   dnf install -y curl wget git unzip nginx certbot python3-certbot-nginx
@@ -86,13 +89,15 @@ echo -e "${GREEN}Bun: $(bun --version 2>/dev/null || echo 'installed')${NC}"
 # ============================================================
 echo -e "${YELLOW}[5/12] Cloning/updating repository...${NC}"
 if [ -d "$APP_DIR/.git" ]; then
-  # Valid git repo - update it
   cd "$APP_DIR"
   git fetch origin
   git reset --hard origin/main
   git clean -fd
 else
-  # Not a git repo or doesn't exist - remove and clone fresh
+  # Kill any process using port 3000
+  fuser -k 3000/tcp 2>/dev/null || true
+  
+  # Remove old directory completely
   rm -rf "$APP_DIR"
   git clone "$REPO_URL" "$APP_DIR"
   cd "$APP_DIR"
@@ -155,7 +160,6 @@ echo -e "${GREEN}Dependencies and database ready!${NC}"
 echo -e "${YELLOW}[7/12] Building Next.js project (this takes 2-5 minutes)...${NC}"
 cd "$APP_DIR"
 
-# Ensure DATABASE_URL is set for build
 export DATABASE_URL="file:$APP_DIR/db/custom.db"
 export NODE_ENV="production"
 
@@ -176,7 +180,7 @@ cp -f prisma/schema.prisma .next/standalone/prisma/ 2>/dev/null || true
 cp -r node_modules/.prisma .next/standalone/node_modules/.prisma 2>/dev/null || true
 cp -r node_modules/@prisma .next/standalone/node_modules/@prisma 2>/dev/null || true
 
-# Create production .env in standalone directory with ABSOLUTE paths
+# Create production .env
 cat > .next/standalone/.env << PRODENV
 DATABASE_URL=file:$APP_DIR/db/custom.db
 NODE_ENV=production
@@ -214,6 +218,7 @@ echo -e "${GREEN}Startup script created!${NC}"
 echo -e "${YELLOW}[9/12] Configuring systemd service...${NC}"
 
 NODE_BIN_PATH=$(which node)
+NODE_VERSION=$(node -v)
 
 cat > /etc/systemd/system/xanvyor-recon.service << EOF
 [Unit]
@@ -229,14 +234,12 @@ Environment=NODE_ENV=production
 Environment=PORT=$APP_PORT
 Environment=HOSTNAME=0.0.0.0
 Environment=DATABASE_URL=file:$APP_DIR/db/custom.db
-Environment=PATH=/root/.nvm/versions/node/$(node -v)/bin:/root/.bun/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=PATH=/root/.nvm/versions/node/$NODE_VERSION/bin:/root/.bun/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 ExecStart=$APP_DIR/start-production.sh
 Restart=always
 RestartSec=5
 StandardOutput=journal
 StandardError=journal
-
-# Memory and resource limits
 LimitNOFILE=65536
 
 [Install]
@@ -254,10 +257,23 @@ echo -e "${GREEN}Service configured and started!${NC}"
 # ============================================================
 echo -e "${YELLOW}[10/12] Configuring Nginx reverse proxy...${NC}"
 
-# Remove any existing configs for our domain
+# Remove ALL existing configs for our domain
 rm -f /etc/nginx/sites-enabled/xanvyor-recon 2>/dev/null
 rm -f /etc/nginx/sites-available/xanvyor-recon 2>/dev/null
 rm -f /etc/nginx/conf.d/xanvyor-recon.conf 2>/dev/null
+rm -f /etc/nginx/sites-enabled/default 2>/dev/null
+
+# Create webroot for certbot challenges
+mkdir -p /var/www/html
+
+# Create self-signed certificate as fallback
+mkdir -p /etc/nginx/ssl
+if [ ! -f /etc/nginx/ssl/xanvyor-recon.crt ]; then
+  openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+    -keyout /etc/nginx/ssl/xanvyor-recon.key \
+    -out /etc/nginx/ssl/xanvyor-recon.crt \
+    -subj "/CN=xanvyorrecon.id/O=XANVYOR/C=ID" 2>/dev/null || true
+fi
 
 cat > /etc/nginx/conf.d/xanvyor-recon.conf << 'NGINX'
 # HTTP - redirect to HTTPS
@@ -271,7 +287,6 @@ server {
         root /var/www/html;
     }
 
-    # Redirect all HTTP to HTTPS
     location / {
         return 301 https://$host$request_uri;
     }
@@ -283,26 +298,20 @@ server {
     listen [::]:443 ssl;
     server_name xanvyorrecon.id www.xanvyorrecon.id;
 
-    # SSL will be configured by certbot, but set fallback self-signed
-    # certbot will replace these with proper certificates
     ssl_certificate /etc/nginx/ssl/xanvyor-recon.crt;
     ssl_certificate_key /etc/nginx/ssl/xanvyor-recon.key;
-
-    # SSL settings
     ssl_protocols TLSv1.2 TLSv1.3;
     ssl_ciphers HIGH:!aNULL:!MD5;
     ssl_prefer_server_ciphers on;
     ssl_session_cache shared:SSL:10m;
     ssl_session_timeout 10m;
 
-    # Security headers
     add_header X-Frame-Options "SAMEORIGIN" always;
     add_header X-Content-Type-Options "nosniff" always;
     add_header X-XSS-Protection "1; mode=block" always;
     add_header Referrer-Policy "strict-origin-when-cross-origin" always;
     add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
 
-    # Max upload size
     client_max_body_size 50M;
 
     location / {
@@ -320,14 +329,12 @@ server {
         proxy_send_timeout 300s;
     }
 
-    # Static files caching
     location /_next/static/ {
         proxy_pass http://127.0.0.1:3000;
         expires 365d;
         add_header Cache-Control "public, immutable";
     }
 
-    # API routes - longer timeout for OSINT operations
     location /api/ {
         proxy_pass http://127.0.0.1:3000;
         proxy_http_version 1.1;
@@ -341,35 +348,15 @@ server {
 }
 NGINX
 
-# Create self-signed certificate as fallback (will be replaced by Let's Encrypt)
-mkdir -p /etc/nginx/ssl
-if [ ! -f /etc/nginx/ssl/xanvyor-recon.crt ]; then
-  openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
-    -keyout /etc/nginx/ssl/xanvyor-recon.key \
-    -out /etc/nginx/ssl/xanvyor-recon.crt \
-    -subj "/CN=xanvyorrecon.id/O=XANVYOR/C=ID" 2>/dev/null || true
-fi
-
-# Also create webroot for certbot challenges
-mkdir -p /var/www/html
-
-# Remove default nginx site if it exists (Ubuntu/Debian)
-if [ -f /etc/nginx/sites-enabled/default ]; then
-  rm -f /etc/nginx/sites-enabled/default
-fi
-
 # Test nginx config
 nginx -t 2>&1 && systemctl restart nginx || {
   echo -e "${RED}Nginx config error, trying simpler config...${NC}"
-  # Fallback: HTTP-only config
   cat > /etc/nginx/conf.d/xanvyor-recon.conf << 'NGINX_SIMPLE'
 server {
     listen 80;
     listen [::]:80;
     server_name xanvyorrecon.id www.xanvyorrecon.id;
-
     client_max_body_size 50M;
-
     location / {
         proxy_pass http://127.0.0.1:3000;
         proxy_http_version 1.1;
@@ -395,41 +382,29 @@ echo -e "${GREEN}Nginx configured!${NC}"
 # ============================================================
 echo -e "${YELLOW}[11/12] Setting up SSL certificate...${NC}"
 
-# Check if DNS is pointing to this server
 SERVER_IP=$(curl -s ifconfig.me 2>/dev/null || echo "76.13.198.125")
 DNS_IP=$(dig +short ${DOMAIN} A 2>/dev/null | tail -1 || echo "")
 WWW_DNS_IP=$(dig +short www.${DOMAIN} A 2>/dev/null | tail -1 || echo "")
 
 echo -e "Server IP: ${SERVER_IP}"
 echo -e "${DOMAIN} DNS: ${DNS_IP:-not resolving}"
-echo -e "www.${DOMAIN} DNS: ${WWW_DNS_IP:-not resolving}"
 
 if [ "$DNS_IP" = "$SERVER_IP" ] || [ "$WWW_DNS_IP" = "$SERVER_IP" ]; then
   echo -e "${GREEN}DNS is pointing to this server! Setting up SSL...${NC}"
   
-  # Kill any process on port 80 temporarily for certbot
   certbot --nginx -d ${DOMAIN} -d www.${DOMAIN} \
-    --non-interactive \
-    --agree-tos \
-    --email admin@${DOMAIN} \
-    --redirect \
+    --non-interactive --agree-tos --email admin@${DOMAIN} --redirect \
     2>&1 || {
       echo -e "${YELLOW}Standard certbot failed, trying standalone mode...${NC}"
       systemctl stop nginx
       certbot certonly --standalone -d ${DOMAIN} -d www.${DOMAIN} \
-        --non-interactive \
-        --agree-tos \
-        --email admin@${DOMAIN} \
-        2>&1 || {
+        --non-interactive --agree-tos --email admin@${DOMAIN} 2>&1 || {
         echo -e "${YELLOW}Standalone also failed, trying webroot mode...${NC}"
         systemctl start nginx
         sleep 2
         certbot certonly --webroot -w /var/www/html \
           -d ${DOMAIN} -d www.${DOMAIN} \
-          --non-interactive \
-          --agree-tos \
-          --email admin@${DOMAIN} \
-          2>&1 || {
+          --non-interactive --agree-tos --email admin@${DOMAIN} 2>&1 || {
           echo -e "${RED}SSL setup failed. Will use HTTP for now.${NC}"
           echo -e "${YELLOW}To manually setup SSL later, run:${NC}"
           echo -e "  certbot --nginx -d ${DOMAIN} -d www.${DOMAIN}"
@@ -438,10 +413,8 @@ if [ "$DNS_IP" = "$SERVER_IP" ] || [ "$WWW_DNS_IP" = "$SERVER_IP" ]; then
       systemctl start nginx
     }
     
-  # If certbot succeeded, update nginx to use the Let's Encrypt certs
   if [ -f /etc/letsencrypt/live/${DOMAIN}/fullchain.pem ]; then
     echo -e "${GREEN}SSL certificate obtained! Updating Nginx...${NC}"
-    # certbot with --nginx flag should have already updated the config
     nginx -t && systemctl restart nginx
   fi
 else
@@ -449,18 +422,14 @@ else
   echo -e "${YELLOW}Current: ${DOMAIN} -> ${DNS_IP:-'not resolving'}${NC}"
   echo -e "${YELLOW}Needed:  ${DOMAIN} -> ${SERVER_IP}${NC}"
   echo ""
-  echo -e "${CYAN}=============================================${NC}"
-  echo -e "${CYAN}  DNS UPDATE REQUIRED AT HOSTINGER${NC}"
-  echo -e "${CYAN}=============================================${NC}"
-  echo -e "  1. Login to: https://hpanel.hostinger.com"
-  echo -e "  2. Go to Domains > xanvyorrecon.id > DNS"
-  echo -e "  3. Edit A record '@' -> ${SERVER_IP}"
-  echo -e "  4. Add/Edit A record 'www' -> ${SERVER_IP}"
-  echo -e "  5. Wait 5-30 min for DNS propagation"
-  echo -e "  6. Then run: certbot --nginx -d ${DOMAIN} -d www.${DOMAIN}"
+  echo -e "${CYAN}DNS UPDATE REQUIRED:${NC}"
+  echo -e "  1. Go to your domain registrar's DNS settings"
+  echo -e "  2. Edit A record '@' -> ${SERVER_IP}"
+  echo -e "  3. Add/Edit A record 'www' -> ${SERVER_IP}"
+  echo -e "  4. Wait 5-30 min for DNS propagation"
+  echo -e "  5. Then run: certbot --nginx -d ${DOMAIN} -d www.${DOMAIN}"
   echo ""
-  echo -e "${YELLOW}The site is available on HTTP right now at:${NC}"
-  echo -e "  ${GREEN}http://${DOMAIN}${NC}"
+  echo -e "${YELLOW}The site is available on HTTP at: http://${DOMAIN}${NC}"
 fi
 
 # ============================================================
@@ -468,7 +437,6 @@ fi
 # ============================================================
 echo -e "${YELLOW}[12/12] Final verification...${NC}"
 
-# Wait for app to start
 echo "Waiting for application to start..."
 for i in $(seq 1 30); do
   if curl -s -o /dev/null -w "%{http_code}" http://localhost:3000 2>/dev/null | grep -q "200\|301\|302"; then
@@ -490,7 +458,6 @@ if systemctl is-active --quiet xanvyor-recon; then
   echo -e "${GREEN}✅ XANVYOR RECON service: RUNNING${NC}"
 else
   echo -e "${RED}❌ XANVYOR RECON service: NOT RUNNING${NC}"
-  echo -e "${YELLOW}Logs:${NC}"
   journalctl -u xanvyor-recon --no-pager -n 30
 fi
 
@@ -501,24 +468,20 @@ else
   systemctl status nginx --no-pager -l
 fi
 
-# Check SSL
 if [ -f /etc/letsencrypt/live/${DOMAIN}/fullchain.pem ]; then
   echo -e "${GREEN}✅ SSL Certificate: INSTALLED (Let's Encrypt)${NC}"
 elif [ -f /etc/nginx/ssl/xanvyor-recon.crt ]; then
   echo -e "${YELLOW}⚠️  SSL Certificate: Self-signed (browsers will show warning)${NC}"
-  echo -e "${YELLOW}   Run: certbot --nginx -d ${DOMAIN} -d www.${DOMAIN}${NC}"
 else
   echo -e "${YELLOW}⚠️  SSL Certificate: NOT INSTALLED${NC}"
 fi
 
-# Check database
 if [ -f "$APP_DIR/db/custom.db" ]; then
   echo -e "${GREEN}✅ Database: EXISTS${NC}"
 else
   echo -e "${RED}❌ Database: NOT FOUND${NC}"
 fi
 
-# Test API endpoint
 API_TEST=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3000/api/auth/validate 2>/dev/null || echo "000")
 if [ "$API_TEST" = "200" ] || [ "$API_TEST" = "405" ] || [ "$API_TEST" = "400" ]; then
   echo -e "${GREEN}✅ API Routes: WORKING${NC}"
@@ -572,3 +535,8 @@ echo ""
 echo -e "${YELLOW}Setting up auto-renewal for SSL...${NC}"
 (crontab -l 2>/dev/null; echo "0 3 * * * certbot renew --quiet --post-hook 'systemctl reload nginx'") | sort -u | crontab -
 echo -e "${GREEN}SSL auto-renewal configured!${NC}"
+
+# Set up auto-update cron (pull latest code every hour)
+echo -e "${YELLOW}Setting up auto-update cron...${NC}"
+(crontab -l 2>/dev/null; echo "0 * * * * cd /opt/xanvyor-recon && git fetch origin && git reset --hard origin/main && npm install && npx prisma generate && npm run build && systemctl restart xanvyor-recon 2>/dev/null") | sort -u | crontab -
+echo -e "${GREEN}Auto-update cron configured!${NC}"
