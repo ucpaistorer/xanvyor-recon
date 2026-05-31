@@ -272,7 +272,7 @@ function DeployTrigger({ onDeployed }: { onDeployed: () => void }) {
 // ============================================================
 export default function OSINTApp() {
   const [view, setView] = useState<AppView>('landing');
-  const [showDeploy, setShowDeploy] = useState(true);
+  const [showDeploy, setShowDeploy] = useState(false);
   const [auth, setAuth] = useState<AuthState>({ isLoggedIn: false, isAdmin: false, user: null, apiKey: null, apiKeyString: '' });
   const [activeModule, setActiveModule] = useState<ModuleType>('dashboard');
   const [sidebarOpen, setSidebarOpen] = useState(true);
