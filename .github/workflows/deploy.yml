@@ -1,0 +1,171 @@
+name: Deploy to VPS
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/deploy.yml'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to VPS via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: 76.13.198.125
+          username: root
+          password: 753951Ucup##
+          port: 22
+          command_timeout: 30m
+          script: |
+            echo "=== Starting VPS Deployment ==="
+            set -e
+            
+            # Install prerequisites
+            apt-get update -y
+            apt-get install -y curl git unzip
+            
+            # Install Node.js if not present
+            if ! command -v node &> /dev/null; then
+              curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+              apt-get install -y nodejs
+            fi
+            
+            # Install Bun if not present  
+            if ! command -v bun &> /dev/null; then
+              curl -fsSL https://bun.sh/install | bash
+              export BUN_INSTALL="$HOME/.bun"
+              export PATH="$BUN_INSTALL/bin:$PATH"
+            fi
+            
+            # Install Nginx if not present
+            if ! command -v nginx &> /dev/null; then
+              apt-get install -y nginx
+            fi
+            
+            # Install Certbot if not present
+            if ! command -v certbot &> /dev/null; then
+              apt-get install -y certbot python3-certbot-nginx
+            fi
+            
+            # Clone or update repo
+            if [ -d /var/www/xanvyor-recon ]; then
+              cd /var/www/xanvyor-recon
+              git fetch --all
+              git reset --hard origin/main
+            else
+              rm -rf /var/www/xanvyor-recon
+              git clone https://github.com/ucpaistorer/xanvyor-recon.git /var/www/xanvyor-recon
+              cd /var/www/xanvyor-recon
+            fi
+            
+            # Export PATH for bun
+            export BUN_INSTALL="$HOME/.bun"
+            export PATH="$BUN_INSTALL/bin:$PATH"
+            
+            # Install dependencies
+            bun install
+            
+            # Setup database
+            bun run db:push
+            
+            # Build the project
+            bun run build
+            
+            # Seed the database
+            bun run db:seed || true
+            
+            # Configure Nginx
+            cat > /etc/nginx/sites-available/xanvyorrecon << 'NGINX'
+            server {
+                listen 80;
+                server_name xanvyorrecon.id www.xanvyorrecon.id;
+                
+                location / {
+                    proxy_pass http://127.0.0.1:3000;
+                    proxy_http_version 1.1;
+                    proxy_set_header Upgrade $http_upgrade;
+                    proxy_set_header Connection 'upgrade';
+                    proxy_set_header Host $host;
+                    proxy_set_header X-Real-IP $remote_addr;
+                    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                    proxy_set_header X-Forwarded-Proto $scheme;
+                    proxy_cache_bypass $http_upgrade;
+                    proxy_read_timeout 300s;
+                    proxy_connect_timeout 75s;
+                }
+            }
+            NGINX
+            
+            ln -sf /etc/nginx/sites-available/xanvyorrecon /etc/nginx/sites-enabled/
+            rm -f /etc/nginx/sites-enabled/default
+            nginx -t && systemctl restart nginx
+            
+            # Get SSL certificate
+            echo "=== Getting SSL Certificate ==="
+            certbot --nginx -d xanvyorrecon.id -d www.xanvyorrecon.id --non-interactive --agree-tos --email admin@xanvyorrecon.id || echo "Certbot failed, trying alternative..."
+            
+            # If certbot failed, try with standalone
+            if [ ! -f /etc/letsencrypt/live/xanvyorrecon.id/fullchain.pem ]; then
+              nginx -s stop 2>/dev/null || true
+              certbot certonly --standalone -d xanvyorrecon.id -d www.xanvyorrecon.id --non-interactive --agree-tos --email admin@xanvyorrecon.id || true
+              systemctl start nginx
+              
+              # Re-configure nginx with SSL
+              cat > /etc/nginx/sites-available/xanvyorrecon << 'NGINX_SSL'
+            server {
+                listen 80;
+                server_name xanvyorrecon.id www.xanvyorrecon.id;
+                return 301 https://$server_name$request_uri;
+            }
+            server {
+                listen 443 ssl http2;
+                server_name xanvyorrecon.id www.xanvyorrecon.id;
+                
+                ssl_certificate /etc/letsencrypt/live/xanvyorrecon.id/fullchain.pem;
+                ssl_certificate_key /etc/letsencrypt/live/xanvyorrecon.id/privkey.pem;
+                ssl_protocols TLSv1.2 TLSv1.3;
+                ssl_ciphers HIGH:!aNULL:!MD5;
+                
+                location / {
+                    proxy_pass http://127.0.0.1:3000;
+                    proxy_http_version 1.1;
+                    proxy_set_header Upgrade $http_upgrade;
+                    proxy_set_header Connection 'upgrade';
+                    proxy_set_header Host $host;
+                    proxy_set_header X-Real-IP $remote_addr;
+                    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                    proxy_set_header X-Forwarded-Proto $scheme;
+                    proxy_cache_bypass $http_upgrade;
+                    proxy_read_timeout 300s;
+                    proxy_connect_timeout 75s;
+                }
+            }
+            NGINX_SSL
+              nginx -t && systemctl restart nginx
+            fi
+            
+            # Kill any existing Next.js process
+            pkill -f "next start" 2>/dev/null || true
+            sleep 2
+            
+            # Start Next.js with PM2 or nohup
+            if command -v pm2 &> /dev/null; then
+              pm2 delete xanvyor-recon 2>/dev/null || true
+              pm2 start bun --name xanvyor-recon -- run start
+              pm2 save
+              pm2 startup || true
+            else
+              npm install -g pm2
+              pm2 start bun --name xanvyor-recon -- run start
+              pm2 save
+              pm2 startup || true
+            fi
+            
+            # Make sure nginx is running
+            systemctl enable nginx
+            systemctl start nginx
+            
+            echo "=== Deployment Complete ==="
